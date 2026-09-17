@@ -4,6 +4,7 @@ Bun workspace monorepo. Packages live in `packages/*`.
 
 | Package | Description |
 | --- | --- |
+| [`agent`](packages/agent) | Minimal agent loop over Effect AI |
 | [`tui`](packages/tui) | Terminal UI |
 
 ## Commands
@@ -12,6 +13,7 @@ Bun workspace monorepo. Packages live in `packages/*`.
 bun install                    # install all workspace deps
 bun run typecheck              # tsc --noEmit in every package
 bun test                       # run all tests
+bun run agent                  # run the agent REPL in watch mode
 bun run tui                    # run the tui package in watch mode
 bun run --filter tui <script>  # run any script in one package (pipes output; not for the TUI)
 ```

@@ -13,6 +13,7 @@
     "format": "oxfmt .",
     "format:check": "oxfmt . --check",
     "test": "bun test",
+    "agent": "bun run --cwd packages/agent dev",
     "tui": "bun run --cwd packages/tui dev",
     "prepare": "effect-tsgo patch --typescript --oxlint && lefthook install"
   },
