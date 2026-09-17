@@ -6,9 +6,9 @@
     "tui": "./src/cli.ts"
   },
   "type": "module",
-  "module": "src/index.ts",
+  "module": "src/index.tsx",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.tsx"
   },
   "scripts": {
     "dev": "bun run --watch src/cli.ts",
@@ -18,6 +18,11 @@
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.0-rc.115",
-    "effect": "4.0.0-rc.115"
+    "effect": "4.0.0-rc.115",
+    "ink": "7.1.1",
+    "react": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0"
   }
 }

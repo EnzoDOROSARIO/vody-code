@@ -52,8 +52,18 @@ Lefthook runs the `bun run check` gates on `pre-commit`, from `lefthook.yml`: li
 
 `lefthook install` writes `.git/hooks`, which is not tracked, so the `prepare` script re-runs it alongside the `effect-tsgo` patch on every `bun install`. `LEFTHOOK=0 git commit` skips the hook for a commit that is deliberately not green.
 
+## TUI rendering
+
+`packages/tui` renders with Ink, so its sources are `.tsx`. Nothing imports `React`: the automatic JSX runtime resolves `react/jsx-runtime` on its own, which is why `react/react-in-jsx-scope` is off in `.oxlintrc.json`.
+
+`main` mounts the app through `Effect.acquireRelease`, so the enclosing scope unmounts Ink on success, failure and interruption — and `BunRuntime.runMain` turns Ctrl+C into that interruption. A mount outside that scope can exit with the cursor still hidden.
+
+The root `tui` script goes through `--cwd`, not `--filter`. `bun run --filter` captures child output so it can prefix each line, which leaves `stdout.isTTY` false; Ink then picks non-interactive mode and writes only the final frame at unmount. A mounted TUI never unmounts, so the screen just stays blank. `--filter` is still right for scripts that only print, such as `test` and `typecheck`.
+
 ## Testing
 
 `@effect/vitest` needs Vitest internals that Bun's runner does not provide, so it crashes under `bun test`. Effect tests here are plain `bun:test` cases that run the effect with `Effect.runPromise` and provide layers from `effect/testing` (`TestClock`, `TestConsole`) explicitly.
 
 `bunfig.toml` scopes test discovery to `packages`, keeping the vendored suites under `repos/` out of `bun test`.
+
+Ink views are tested with Ink's own `renderToString`, which renders to a string with no terminal and no timers. `ink-testing-library` is a separate, older package that pins React 18 — reach for `renderToString` instead.

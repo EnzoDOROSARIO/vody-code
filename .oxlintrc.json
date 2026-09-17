@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
   "extends": ["./node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
-  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "promise", "effecttsgo"],
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "promise", "react", "effecttsgo"],
   "jsPlugins": [
     {
       "name": "anti-slop",
@@ -65,6 +65,7 @@
     "no-fallthrough": "off",
     "no-undef": "off",
     "oxc/no-accumulating-spread": "error",
+    "react/react-in-jsx-scope": "off",
     "anti-slop/no-array-filter-map": "error",
     "anti-slop/no-reduce-accumulator-copy": "error",
     "anti-slop/no-chained-type-assertions": "error",
