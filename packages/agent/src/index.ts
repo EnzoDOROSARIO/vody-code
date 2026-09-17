@@ -7,21 +7,14 @@ import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
 const systemPrompt = `You are a coding agent at ${process.cwd()}. Use bash to solve tasks. Act, don't explain.`
 
-/** One tool is enough: everything else is something the model can shell out to. */
 const bash = Tool.make('bash', {
   description: 'Run a shell command.',
   parameters: Schema.Struct({ command: Schema.String }),
   success: Schema.String,
 })
 
-/** The agent's toolkit: one tool, as in the reference loop. */
 export const toolkit = Toolkit.make(bash)
 
-/**
- * Runs the agent's commands, echoing each one and the head of its output so
- * you can watch the loop work. stdout and stderr are interleaved, and a
- * non-zero exit status is ordinary output rather than a failure.
- */
 export const toolkitLayer: Layer.Layer<
   Tool.Handler<'bash'>,
   never,
@@ -46,14 +39,6 @@ export const toolkitLayer: Layer.Layer<
   }),
 )
 
-/**
- * The agent loop: send the conversation, run whatever tools the model asked
- * for, send the results back, and go around again. Returns on the first turn
- * where the model calls no tool, which is the turn that answers the question.
- *
- * `chat` accumulates the conversation, so asking the same chat a second
- * question continues it rather than starting over.
- */
 export const answer = (
   chat: Chat.Chat,
   tools: Toolkit.WithHandler<(typeof toolkit)['tools']>,
@@ -75,12 +60,6 @@ export const answer = (
     }
   })
 
-/**
- * The REPL around {@link answer}: read a question, print the answer, ask again.
- * Completes when the person quits the terminal input.
- *
- * Run it from an entrypoint with `BunRuntime.runMain`.
- */
 export const main: Effect.Effect<
   void,
   never,
@@ -103,13 +82,6 @@ export const main: Effect.Effect<
   Effect.orDie,
 )
 
-/**
- * Everything `main` needs apart from the platform: an Anthropic model reached
- * over `fetch`, plus the bash handler. Reads `ANTHROPIC_API_KEY` and,
- * optionally, `MODEL_ID` from the environment.
- *
- * Which platform runs the shell commands is left to the entrypoint.
- */
 export const layer: Layer.Layer<
   LanguageModel.LanguageModel | Tool.Handler<'bash'>,
   Config.ConfigError,
