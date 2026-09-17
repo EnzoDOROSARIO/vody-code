@@ -14,12 +14,13 @@
     "format:check": "oxfmt . --check",
     "test": "bun test",
     "tui": "bun run --filter tui dev",
-    "prepare": "effect-tsgo patch --typescript --oxlint"
+    "prepare": "effect-tsgo patch --typescript --oxlint && lefthook install"
   },
   "devDependencies": {
     "@effect/tsgo": "0.45.0",
     "@oxlint/plugins": "1.82.0",
     "@types/bun": "latest",
+    "lefthook": "^2.1.14",
     "oxfmt": "0.68.0",
     "oxlint": "1.82.0",
     "oxlint-tsgolint": "7.0.2001",

@@ -46,6 +46,12 @@ That three-way patch demands exact versions — `@effect/tsgo@0.45.0` supports `
 
 `tsconfig.json` is a solution file: it holds no sources, only references to the packages. `bun run typecheck` is `tsc -b`, which walks them. A new package needs a reference entry, or nothing typechecks it.
 
+## Git hooks
+
+Lefthook runs the `bun run check` gates on `pre-commit`, from `lefthook.yml`: lint, then format, then typecheck, stopping at the first failure. All three cover the whole repo rather than staged paths, since `tsc -b` is project-wide anyway. The format job is `format:check`, not `format` — a hook that rewrote files would leave the staged snapshot and the working tree disagreeing, so it reports and you run `bun run format`.
+
+`lefthook install` writes `.git/hooks`, which is not tracked, so the `prepare` script re-runs it alongside the `effect-tsgo` patch on every `bun install`. `LEFTHOOK=0 git commit` skips the hook for a commit that is deliberately not green.
+
 ## Testing
 
 `@effect/vitest` needs Vitest internals that Bun's runner does not provide, so it crashes under `bun test`. Effect tests here are plain `bun:test` cases that run the effect with `Effect.runPromise` and provide layers from `effect/testing` (`TestClock`, `TestConsole`) explicitly.

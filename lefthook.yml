@@ -1,0 +1,17 @@
+# The same gates as `bun run check`, in the same order. `format:check` rather
+# than `format`: a hook that rewrites files would leave the staged snapshot
+# and the working tree disagreeing, so it reports instead — run
+# `bun run format` to fix.
+#
+# All three jobs cover the whole repo rather than staged paths: `tsc -b`
+# typechecks project-wide anyway, and oxlint and oxfmt are fast enough that
+# narrowing them buys nothing.
+pre-commit:
+  piped: true
+  jobs:
+    - name: lint
+      run: bun run lint
+    - name: format
+      run: bun run format:check
+    - name: typecheck
+      run: bun run typecheck
