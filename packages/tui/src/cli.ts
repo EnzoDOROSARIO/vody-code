@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import pkg from "../package.json";
+import { BunRuntime } from "@effect/platform-bun";
 
-import { banner } from "./index.ts";
+import { main } from "./index.ts";
 
-console.log(banner(pkg.version));
+BunRuntime.runMain(main);
