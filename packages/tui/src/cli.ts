@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { BunRuntime } from "@effect/platform-bun";
+import { BunRuntime } from '@effect/platform-bun'
 
-import { main } from "./index.ts";
+import { main } from './index.ts'
 
-BunRuntime.runMain(main);
+BunRuntime.runMain(main)

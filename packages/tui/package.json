@@ -2,13 +2,13 @@
   "name": "tui",
   "version": "0.0.0",
   "private": true,
+  "bin": {
+    "tui": "./src/cli.ts"
+  },
   "type": "module",
   "module": "src/index.ts",
   "exports": {
     ".": "./src/index.ts"
-  },
-  "bin": {
-    "tui": "./src/cli.ts"
   },
   "scripts": {
     "dev": "bun run --watch src/cli.ts",

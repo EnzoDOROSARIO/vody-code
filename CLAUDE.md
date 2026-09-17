@@ -24,6 +24,28 @@ git subtree pull --prefix=repos/effect https://github.com/Effect-TS/effect.git e
 
 Keep the pin above and the `effect` version in `packages/*/package.json` in step, so the vendored source is the source that runs.
 
+## Linting and formatting
+
+`bun run check` gates a change: Oxlint, then oxfmt, then `tsc`. `.oxlintrc.json` and `.oxfmtrc.json` hold the rules.
+
+Oxlint runs with `--disable-nested-config` because nested discovery otherwise loads `repos/effect/.oxlintrc.json`, whose JS plugin this repo does not install. `ignorePatterns` alone does not prevent that: it filters files, not config discovery.
+
+`.oxlint/anti-slop/` is a vendored Oxlint plugin that rejects low-evidence TypeScript — `unknown` parameters, assertion chains, runtime `typeof`, module mocking — plus Effect rules for tagged values and service constructors. Its rules are TypeScript, which Oxlint loads natively under Bun.
+
+Treat it like `repos/`: read-only upstream code, excluded from lint, format, and typecheck. `.oxlint/anti-slop/UPSTREAM.md` records where the copy came from, how it already diverges, and how to check an edit to it. Install and update it with the `install-anti-slop` skill, and record any further local change there, or the next update silently drops it.
+
+## Effect diagnostics
+
+[`@effect/tsgo`](https://github.com/Effect-TS/tsgo) patches the TypeScript and Oxlint binaries in `node_modules` with the Effect language service. The patch does not survive a reinstall, so the `prepare` script re-applies it on every `bun install`.
+
+Effect diagnostics reach you as Oxlint `effecttsgo/*` rules, from the `recommended` preset in `.oxlintrc.json`. They need `options.typeAware`, so leave it on. The language service plugin in `tsconfig.base.json` carries `diagnostics: false` on purpose: it would otherwise report the same findings a second time, through `tsc` and the editor.
+
+That three-way patch demands exact versions — `@effect/tsgo@0.45.0` supports `typescript@7.0.2` and `oxlint@1.81`–`1.82`. So Oxlint is held at `1.82.0` rather than latest, with `@oxlint/plugins` matched to it. `effect-tsgo patch` refuses to run on an unsupported combination; check its support matrix before bumping any of the three.
+
+## Typechecking
+
+`tsconfig.json` is a solution file: it holds no sources, only references to the packages. `bun run typecheck` is `tsc -b`, which walks them. A new package needs a reference entry, or nothing typechecks it.
+
 ## Testing
 
 `@effect/vitest` needs Vitest internals that Bun's runner does not provide, so it crashes under `bun test`. Effect tests here are plain `bun:test` cases that run the effect with `Effect.runPromise` and provide layers from `effect/testing` (`TestClock`, `TestConsole`) explicitly.
