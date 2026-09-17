@@ -8,7 +8,13 @@
 | --- | --- | --- |
 | `repos/effect` | [Effect-TS/effect](https://github.com/Effect-TS/effect) | `effect@4.0.0-rc.115` |
 
-Read it before reaching for an Effect API, and trust it over remembered APIs or web results: v4 is still an RC and moves. `repos/effect/AGENTS.md` carries Effect's own conventions, and `repos/effect/ai-docs/src/` holds worked examples per topic.
+Read it before reaching for an Effect API, and trust it over remembered APIs or web results: v4 is still an RC and moves. Three entry points, in the order they usually pay off:
+
+- `repos/effect/LLMS.md` — Effect's own guidance for writing Effect code.
+- `repos/effect/ai-docs/src/` — runnable worked examples, one directory per topic.
+- `repos/effect/packages/effect/src/` — the implementation, when the above leave a signature ambiguous.
+
+`repos/effect/.agents/AGENTS.md` is guidance for contributing to the Effect monorepo itself, so it does not apply here.
 
 Application code imports from the installed `effect` package. Paths under `repos/` stay out of `import` statements and out of edits; the way to change one is to re-pull it:
 

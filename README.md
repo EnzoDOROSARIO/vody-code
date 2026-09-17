@@ -27,4 +27,4 @@ reference so agents can read the real implementation instead of guessing at a mo
 git subtree pull --prefix=repos/effect https://github.com/Effect-TS/effect.git effect@<version> --squash
 ```
 
-See [`AGENTS.md`](AGENTS.md) for the rules that apply to it.
+See [`CLAUDE.md`](CLAUDE.md) for the rules that apply to it.
