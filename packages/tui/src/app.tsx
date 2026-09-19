@@ -3,7 +3,7 @@ import { Box, Text, useInput, useStdin } from 'ink'
 import { useState } from 'react'
 
 import { casesHandled } from './defects.ts'
-import { Markdown } from './markdown.tsx'
+import { Markdown } from './markdown/index.tsx'
 
 import type { Activity, ToolCall, ToolFailure, ToolResult } from 'agent'
 import type { Key } from 'ink'

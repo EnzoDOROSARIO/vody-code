@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test'
 import { renderToString } from 'ink'
 
-import { BOLD, CYAN, DIM, ITALIC, STRIKETHROUGH, UNDERLINE, colourful } from './testing.ts'
-import { Markdown, blocks } from '#markdown.tsx'
+import { BOLD, CYAN, DIM, ITALIC, STRIKETHROUGH, UNDERLINE, colourful } from '#__test__/testing.ts'
+import { blocks } from '#markdown/blocks.ts'
+import { Markdown } from '#markdown/index.tsx'
 
 // What each block holds, with a list flattened back to its items, so a test can talk
 // about the split without naming the shape the screen needs it in.
@@ -74,10 +75,13 @@ test('a heading is set apart by its depth', () => {
 })
 
 test('emphasis, code and a quotation each carry their own styling', () => {
+  const quoted = colourful(<Markdown>{'> quoted'}</Markdown>)
+
   expect(colourful(<Markdown>{'**loud**'}</Markdown>)).toContain(BOLD)
   expect(colourful(<Markdown>{'*soft*'}</Markdown>)).toContain(ITALIC)
   expect(colourful(<Markdown>{'`code`'}</Markdown>)).toContain(CYAN)
-  expect(colourful(<Markdown>{'> quoted'}</Markdown>)).toContain(DIM)
+  expect(quoted).toContain(DIM)
+  expect(quoted).toContain(ITALIC)
 })
 
 test('a fence is dim rather than highlighted', () => {
@@ -123,6 +127,16 @@ test('an ordered list counts from where it says, and leaves its items in one col
 
 test('a quotation is barred down its left, every line of it', () => {
   expect(renderToString(<Markdown>{'> one\n> two'}</Markdown>)).toBe('│ one\n│ two')
+})
+
+// Once the colour is gone a table is rows of words: the weight on the header and the
+// rule under it are what say it is a table at all, so they are asserted rather than
+// left to the plain-text shape below.
+test('a table is bold across its header and dim along its rule', () => {
+  const painted = colourful(<Markdown>{'| a | b |\n| - | - |\n| 1 | 2 |'}</Markdown>)
+
+  expect(painted).toContain(BOLD)
+  expect(painted).toContain(DIM)
 })
 
 test('a table lines its columns up and honours the alignment it was given', () => {
@@ -258,6 +272,16 @@ test('a quotation inside a quotation carries a bar of its own', () => {
   expect(renderToString(<Markdown>{'> outer\n>\n> > inner quote'}</Markdown>)).toBe(
     '│ outer\n│ │ inner quote',
   )
+})
+
+// A quotation with a column of its own is barred by Ink, which is what the render tests
+// above cover. One inside a list item has no column to take, so its bar and its slant
+// come from the blockquote arm instead — `Listed` styles nothing itself.
+test('a quotation inside a list item carries its own bar and slant', () => {
+  const painted = colourful(<Markdown>{'- outer\n  > quoted in list'}</Markdown>)
+
+  expect(painted).toContain(DIM)
+  expect(painted).toContain(ITALIC)
 })
 
 // A terminal has no HTML to render. Stripping the tags would drop whatever the model

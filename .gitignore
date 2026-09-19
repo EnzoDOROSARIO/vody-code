@@ -8,3 +8,6 @@ dist/
 
 .claude/settings.local.json
 coverage/
+
+# Written by the review workflow; a hash of the tree it last reviewed.
+.claude/review-state
