@@ -1,21 +1,11 @@
-import {
-  Console,
-  Duration,
-  Effect,
-  FileSystem,
-  Option,
-  Path,
-  Random,
-  Ref,
-  Schema,
-  Stream,
-} from 'effect'
+import { Console, Duration, Effect, FileSystem, Path, Schema, Stream } from 'effect'
 
-import type { Layer } from 'effect'
+import { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
 import { FileSystemRefused, refused } from './errors.ts'
+import { Files, modifiedAt } from './files.ts'
 import { countOccurrences, numbered, toLines } from './text.ts'
 import { Workspace } from '../workspace.ts'
 
@@ -276,9 +266,6 @@ const makeOutput = (fs: FileSystem.FileSystem): Effect.Effect<Output> =>
     return { collect, seal }
   })
 
-const modifiedAt = (info: FileSystem.File.Info): number =>
-  Option.match(info.mtime, { onNone: () => 0, onSome: (at) => at.getTime() })
-
 const literalPrefix = (pattern: string): string => {
   const wildcard = pattern.search(/[*?[{]/)
 
@@ -377,310 +364,286 @@ export const toolkitLayer: Layer.Layer<
   Handlers,
   never,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
-> = toolkit.toLayer(
-  Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
+> = toolkit
+  .toLayer(
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
 
-    const root = yield* Workspace
+      const root = yield* Workspace
 
-    const seen = yield* Ref.make(new Map<string, number>())
+      const files = yield* Files
 
-    const remember = (resolved: string): Effect.Effect<void> =>
-      fs.stat(resolved).pipe(
-        Effect.flatMap((info) =>
-          Ref.update(seen, (files) => new Map(files).set(resolved, modifiedAt(info))),
-        ),
-        Effect.ignore,
-      )
+      const excludesFor = Effect.fn('excludesFor')(function* (pattern: string) {
+        const listed = yield* spawner
+          .string(
+            ChildProcess.make(
+              'git',
+              ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'],
+              { cwd: root },
+            ),
+          )
+          .pipe(Effect.orElseSucceed(() => ''))
 
-    const writeAtomically = Effect.fn('writeAtomically')(function* (
-      resolved: string,
-      contents: string,
-    ) {
-      const directory = path.dirname(resolved)
+        const ignored = listed.split('\n').filter((entry) => entry !== '')
 
-      yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.mapError(refused))
+        const reachedInto = literalPrefix(pattern)
 
-      const suffix = yield* Random.nextInt
+        return [...ALWAYS_EXCLUDED, ...ignored].flatMap((entry) => {
+          const trimmed = entry.endsWith('/') ? entry.slice(0, -1) : entry
 
-      const temporary = path.join(directory, `.${path.basename(resolved)}.${Math.abs(suffix)}.tmp`)
-
-      yield* fs.writeFileString(temporary, contents).pipe(Effect.mapError(refused))
-
-      yield* fs.rename(temporary, resolved).pipe(
-        Effect.mapError(refused),
-        Effect.tapCause(() => Effect.ignore(fs.remove(temporary, { force: true }))),
-      )
-    })
-
-    const excludesFor = Effect.fn('excludesFor')(function* (pattern: string) {
-      const listed = yield* spawner
-        .string(
-          ChildProcess.make(
-            'git',
-            ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'],
-            { cwd: root },
-          ),
-        )
-        .pipe(Effect.orElseSucceed(() => ''))
-
-      const ignored = listed.split('\n').filter((entry) => entry !== '')
-
-      const reachedInto = literalPrefix(pattern)
-
-      return [...ALWAYS_EXCLUDED, ...ignored].flatMap((entry) => {
-        const trimmed = entry.endsWith('/') ? entry.slice(0, -1) : entry
-
-        return reachesInto(reachedInto, trimmed) ? [] : [trimmed, `${trimmed}/**`]
+          return reachesInto(reachedInto, trimmed) ? [] : [trimmed, `${trimmed}/**`]
+        })
       })
-    })
 
-    return toolkit.of({
-      bash: Effect.fn('bash')(function* ({ command, timeout_seconds: requested }) {
-        yield* Console.log(`$ ${command}`)
+      return toolkit.of({
+        bash: Effect.fn('bash')(function* ({ command, timeout_seconds: requested }) {
+          yield* Console.log(`$ ${command}`)
 
-        const seconds = Math.min(requested ?? DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS)
+          const seconds = Math.min(requested ?? DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS)
 
-        const output = yield* makeOutput(fs)
+          const output = yield* makeOutput(fs)
 
-        const run = Effect.scoped(
-          Effect.gen(function* () {
-            const handle = yield* spawner.spawn(
-              ChildProcess.make('sh', ['-c', command], {
-                cwd: root,
-                stdin: 'ignore',
-                killSignal: 'SIGTERM',
-                forceKillAfter: Duration.seconds(2),
-              }),
-            )
+          const run = Effect.scoped(
+            Effect.gen(function* () {
+              const handle = yield* spawner.spawn(
+                ChildProcess.make('sh', ['-c', command], {
+                  cwd: root,
+                  stdin: 'ignore',
+                  killSignal: 'SIGTERM',
+                  forceKillAfter: Duration.seconds(2),
+                }),
+              )
 
-            yield* Stream.runForEach(Stream.decodeText(handle.all), output.collect)
+              yield* Stream.runForEach(Stream.decodeText(handle.all), output.collect)
 
-            return yield* handle.exitCode
-          }),
-        ).pipe(
-          Effect.mapError(
-            (error) =>
-              new CommandRefused({ reason: `bash could not run \`${command}\`: ${error.message}` }),
-          ),
-        )
+              return yield* handle.exitCode
+            }),
+          ).pipe(
+            Effect.mapError(
+              (error) =>
+                new CommandRefused({
+                  reason: `bash could not run \`${command}\`: ${error.message}`,
+                }),
+            ),
+          )
 
-        const code = yield* run.pipe(
-          Effect.timeoutOrElse({
-            duration: Duration.seconds(seconds),
-            orElse: () =>
-              Effect.flatMap(output.seal, (shown) =>
-                Effect.fail(
-                  new CommandTimedOut({
-                    seconds,
-                    output: shown,
-                    reason:
-                      seconds === MAX_TIMEOUT_SECONDS
-                        ? `bash killed \`${command}\` after ${seconds}s, the longest it will wait — narrow the work, or start it in the background if it is not meant to finish`
-                        : `bash killed \`${command}\` after ${seconds}s — run it again with a longer timeout_seconds, or in the background if it is not meant to finish`,
-                  }),
+          const code = yield* run.pipe(
+            Effect.timeoutOrElse({
+              duration: Duration.seconds(seconds),
+              orElse: () =>
+                Effect.flatMap(output.seal, (shown) =>
+                  Effect.fail(
+                    new CommandTimedOut({
+                      seconds,
+                      output: shown,
+                      reason:
+                        seconds === MAX_TIMEOUT_SECONDS
+                          ? `bash killed \`${command}\` after ${seconds}s, the longest it will wait — narrow the work, or start it in the background if it is not meant to finish`
+                          : `bash killed \`${command}\` after ${seconds}s — run it again with a longer timeout_seconds, or in the background if it is not meant to finish`,
+                    }),
+                  ),
                 ),
-              ),
-          }),
-        )
+            }),
+          )
 
-        const shown = yield* output.seal
+          const shown = yield* output.seal
 
-        yield* Console.log(shown.slice(0, PREVIEW_CHARACTERS))
+          yield* Console.log(shown.slice(0, PREVIEW_CHARACTERS))
 
-        return `exit ${code}\n${shown}`
-      }),
+          return `exit ${code}\n${shown}`
+        }),
 
-      read_file: Effect.fn('read_file')(function* ({ limit, offset, path: target }) {
-        yield* Console.log(`read ${target}`)
+        read_file: Effect.fn('read_file')(function* ({ limit, offset, path: target }) {
+          yield* Console.log(`read ${target}`)
 
-        const resolved = path.resolve(root, target)
+          const resolved = path.resolve(root, target)
 
-        const bytes = yield* fs.readFile(resolved).pipe(Effect.mapError(refused))
+          const bytes = yield* fs.readFile(resolved).pipe(Effect.mapError(refused))
 
-        if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
-          return yield* new FileIsBinary({
-            path: target,
-            reason: `read_file will not decode ${target}: the bytes include NUL, so it is not text — inspect it with bash if you need to`,
-          })
-        }
-
-        const contents = new TextDecoder().decode(bytes)
-
-        if (contents === '') {
-          yield* remember(resolved)
-
-          return '(empty file)'
-        }
-
-        const lines = toLines(contents)
-
-        const from = (offset ?? 1) - 1
-
-        if (from >= lines.length) {
-          return `(offset ${offset ?? 1} is past the end of ${target}, which has ${lines.length} lines)`
-        }
-
-        const shown = view(lines, from, limit ?? DEFAULT_LINE_LIMIT, MAX_READ_CHARACTERS)
-
-        if (shown.complete) {
-          yield* remember(resolved)
-        }
-
-        return shown.text
-      }),
-
-      write_file: Effect.fn('write_file')(function* ({ content, path: target }) {
-        yield* Console.log(`write ${target}`)
-
-        const resolved = path.resolve(root, target)
-
-        const existed = yield* fs.exists(resolved).pipe(Effect.mapError(refused))
-
-        if (existed) {
-          const info = yield* fs.stat(resolved).pipe(Effect.mapError(refused))
-
-          const remembered = (yield* Ref.get(seen)).get(resolved)
-
-          if (remembered === undefined || modifiedAt(info) > remembered) {
-            return yield* new FileNotRead({
+          if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
+            return yield* new FileIsBinary({
               path: target,
-              reason:
-                remembered === undefined
-                  ? `write_file will not overwrite ${target} unseen — read_file all of it first, so the content it replaces is known`
-                  : `write_file will not overwrite ${target}: it changed on disk after you read it — read_file it again before replacing it`,
+              reason: `read_file will not decode ${target}: the bytes include NUL, so it is not text — inspect it with bash if you need to`,
             })
           }
-        }
 
-        yield* writeAtomically(resolved, content)
+          const contents = new TextDecoder().decode(bytes)
 
-        yield* remember(resolved)
+          if (contents === '') {
+            yield* files.remember(resolved)
 
-        const written = new TextEncoder().encode(content).length
+            return '(empty file)'
+          }
 
-        return `${existed ? 'Overwrote' : 'Created'} ${target} (${written} bytes)`
-      }),
+          const lines = toLines(contents)
 
-      edit_file: Effect.fn('edit_file')(function* ({
-        new_text: wanted,
-        old_text: sought,
-        path: target,
-        replace_all: every,
-      }) {
-        yield* Console.log(`edit ${target}`)
+          const from = (offset ?? 1) - 1
 
-        const resolved = path.resolve(root, target)
+          if (from >= lines.length) {
+            return `(offset ${offset ?? 1} is past the end of ${target}, which has ${lines.length} lines)`
+          }
 
-        const bytes = yield* fs.readFile(resolved).pipe(Effect.mapError(refused))
+          const shown = view(lines, from, limit ?? DEFAULT_LINE_LIMIT, MAX_READ_CHARACTERS)
 
-        // `ignoreBOM` keeps a leading BOM as a character rather than dropping it, so
-        // the file can be written back with the mark it had.
-        const decoded = new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes)
+          if (shown.complete) {
+            yield* files.remember(resolved)
+          }
 
-        const mark = markOf(decoded)
+          return shown.text
+        }),
 
-        const contents = decoded.slice(mark.length)
+        write_file: Effect.fn('write_file')(function* ({ content, path: target }) {
+          yield* Console.log(`write ${target}`)
 
-        if (sought === '') {
-          return yield* new TextNotFound({
-            path: target,
-            reason: `edit_file was given an empty old_text — pass the text to replace, copied from ${target}`,
-          })
-        }
+          const resolved = path.resolve(root, target)
 
-        // The model types plain newlines whatever the file uses, so move its text to the
-        // file's convention rather than making it guess.
-        const found = sightings(contents, sought, wanted)
+          const existed = yield* fs.exists(resolved).pipe(Effect.mapError(refused))
 
-        const occurrences = found.reduce((total, sighting) => total + sighting.occurrences, 0)
+          if (existed) {
+            const info = yield* fs.stat(resolved).pipe(Effect.mapError(refused))
 
-        if (occurrences === 0) {
-          return yield* new TextNotFound({
-            path: target,
-            reason: `edit_file found no occurrence of old_text in ${target} — read the file and retry with text copied from it`,
-          })
-        }
+            const remembered = yield* files.rememberedAt(resolved)
 
-        if (occurrences > 1 && every !== true) {
-          return yield* new TextNotUnique({
-            path: target,
-            occurrences,
-            reason: `edit_file found ${occurrences} occurrences of old_text in ${target} and will not guess between them — extend old_text with the lines around the one you mean, or pass replace_all to change all ${occurrences}`,
-          })
-        }
+            if (remembered === undefined || modifiedAt(info) > remembered) {
+              return yield* new FileNotRead({
+                path: target,
+                reason:
+                  remembered === undefined
+                    ? `write_file will not overwrite ${target} unseen — read_file all of it first, so the content it replaces is known`
+                    : `write_file will not overwrite ${target}: it changed on disk after you read it — read_file it again before replacing it`,
+              })
+            }
+          }
 
-        // One sighting of one occurrence when the match was unique, every sighting when
-        // replace_all asked for them, and each replaced in the framing it was found in.
-        const edited = found.reduce(
-          (text, sighting) =>
-            text.split(sighting.framing.original).join(sighting.framing.replacement),
-          contents,
-        )
+          yield* files.write(resolved, content)
 
-        yield* writeAtomically(resolved, mark + edited)
+          yield* files.remember(resolved)
 
-        yield* remember(resolved)
+          const written = new TextEncoder().encode(content).length
 
-        const anchor = found.reduce((first, sighting) =>
-          sighting.at < first.at ? sighting : first,
-        )
+          return `${existed ? 'Overwrote' : 'Created'} ${target} (${written} bytes)`
+        }),
 
-        const editedLines = toLines(reframe(edited, '\n'))
+        edit_file: Effect.fn('edit_file')(function* ({
+          new_text: wanted,
+          old_text: sought,
+          path: target,
+          replace_all: every,
+        }) {
+          yield* Console.log(`edit ${target}`)
 
-        const firstEdited = toLines(contents.slice(0, anchor.at)).length
+          const resolved = path.resolve(root, target)
 
-        const from = Math.max(0, firstEdited - 1 - CONTEXT_LINES)
+          const bytes = yield* fs.readFile(resolved).pipe(Effect.mapError(refused))
 
-        const to = Math.min(
-          editedLines.length,
-          firstEdited + toLines(anchor.framing.replacement).length + CONTEXT_LINES,
-        )
+          // `ignoreBOM` keeps a leading BOM as a character rather than dropping it, so
+          // the file can be written back with the mark it had.
+          const decoded = new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes)
 
-        const snippet = numbered(editedLines.slice(from, to), from + 1)
+          const mark = markOf(decoded)
 
-        return `Edited ${target} (${occurrences} ${occurrences === 1 ? 'replacement' : 'replacements'})\n${snippet}`
-      }),
+          const contents = decoded.slice(mark.length)
 
-      glob: Effect.fn('glob')(function* ({ pattern }) {
-        yield* Console.log(`glob ${pattern}`)
+          if (sought === '') {
+            return yield* new TextNotFound({
+              path: target,
+              reason: `edit_file was given an empty old_text — pass the text to replace, copied from ${target}`,
+            })
+          }
 
-        const exclude = yield* excludesFor(pattern)
+          // The model types plain newlines whatever the file uses, so move its text to the
+          // file's convention rather than making it guess.
+          const found = sightings(contents, sought, wanted)
 
-        const matches = yield* fs.glob(pattern, { exclude, root }).pipe(Effect.mapError(refused))
+          const occurrences = found.reduce((total, sighting) => total + sighting.occurrences, 0)
 
-        const described = yield* Effect.forEach(
-          matches,
-          (match) =>
-            fs.stat(path.resolve(root, match)).pipe(
-              Effect.match({
-                onFailure: () => [],
-                onSuccess: (info) =>
-                  info.type === 'File' ? [{ at: modifiedAt(info), path: match }] : [],
-              }),
-            ),
-          { concurrency: STAT_CONCURRENCY },
-        )
+          if (occurrences === 0) {
+            return yield* new TextNotFound({
+              path: target,
+              reason: `edit_file found no occurrence of old_text in ${target} — read the file and retry with text copied from it`,
+            })
+          }
 
-        const found = described
-          .flat()
-          .toSorted((left, right) => right.at - left.at || left.path.localeCompare(right.path))
+          if (occurrences > 1 && every !== true) {
+            return yield* new TextNotUnique({
+              path: target,
+              occurrences,
+              reason: `edit_file found ${occurrences} occurrences of old_text in ${target} and will not guess between them — extend old_text with the lines around the one you mean, or pass replace_all to change all ${occurrences}`,
+            })
+          }
 
-        if (found.length === 0) {
-          return '(no matches)'
-        }
+          // One sighting of one occurrence when the match was unique, every sighting when
+          // replace_all asked for them, and each replaced in the framing it was found in.
+          const edited = found.reduce(
+            (text, sighting) =>
+              text.split(sighting.framing.original).join(sighting.framing.replacement),
+            contents,
+          )
 
-        const shown = found.slice(0, MAX_MATCHES).map((file) => file.path)
+          yield* files.write(resolved, mark + edited)
 
-        return found.length > MAX_MATCHES
-          ? [
-              ...shown,
-              `... (${found.length - MAX_MATCHES} more matches omitted, oldest first; narrow the pattern)`,
-            ].join('\n')
-          : shown.join('\n')
-      }),
-    })
-  }),
-)
+          yield* files.remember(resolved)
+
+          const anchor = found.reduce((first, sighting) =>
+            sighting.at < first.at ? sighting : first,
+          )
+
+          const editedLines = toLines(reframe(edited, '\n'))
+
+          const firstEdited = toLines(contents.slice(0, anchor.at)).length
+
+          const from = Math.max(0, firstEdited - 1 - CONTEXT_LINES)
+
+          const to = Math.min(
+            editedLines.length,
+            firstEdited + toLines(anchor.framing.replacement).length + CONTEXT_LINES,
+          )
+
+          const snippet = numbered(editedLines.slice(from, to), from + 1)
+
+          return `Edited ${target} (${occurrences} ${occurrences === 1 ? 'replacement' : 'replacements'})\n${snippet}`
+        }),
+
+        glob: Effect.fn('glob')(function* ({ pattern }) {
+          yield* Console.log(`glob ${pattern}`)
+
+          const exclude = yield* excludesFor(pattern)
+
+          const matches = yield* fs.glob(pattern, { exclude, root }).pipe(Effect.mapError(refused))
+
+          const described = yield* Effect.forEach(
+            matches,
+            (match) =>
+              fs.stat(path.resolve(root, match)).pipe(
+                Effect.match({
+                  onFailure: () => [],
+                  onSuccess: (info) =>
+                    info.type === 'File' ? [{ at: modifiedAt(info), path: match }] : [],
+                }),
+              ),
+            { concurrency: STAT_CONCURRENCY },
+          )
+
+          const found = described
+            .flat()
+            .toSorted((left, right) => right.at - left.at || left.path.localeCompare(right.path))
+
+          if (found.length === 0) {
+            return '(no matches)'
+          }
+
+          const shown = found.slice(0, MAX_MATCHES).map((file) => file.path)
+
+          return found.length > MAX_MATCHES
+            ? [
+                ...shown,
+                `... (${found.length - MAX_MATCHES} more matches omitted, oldest first; narrow the pattern)`,
+              ].join('\n')
+            : shown.join('\n')
+        }),
+      })
+    }),
+  )
+  .pipe(Layer.provide(Files.layer))
