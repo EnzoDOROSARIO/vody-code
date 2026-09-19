@@ -5,10 +5,11 @@ import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import * as Bash from './bash.ts'
 import { FileSystemRefused, refused } from './errors.ts'
-import { Files, modifiedAt } from './files.ts'
+import { Files } from './files.ts'
 import * as Glob from './glob.ts'
 import * as ReadFile from './read-file.ts'
 import { countOccurrences, numbered, toLines } from './text.ts'
+import * as WriteFile from './write-file.ts'
 import { Workspace } from '../workspace.ts'
 
 // The tools' errors are raised by the tool that owns them and re-exported here, so
@@ -18,6 +19,8 @@ export { CommandRefused, CommandTimedOut } from './bash.ts'
 export { FileSystemRefused } from './errors.ts'
 
 export { FileIsBinary } from './read-file.ts'
+
+export { FileNotRead } from './write-file.ts'
 
 const CONTEXT_LINES = 3
 
@@ -31,11 +34,6 @@ export class TextNotFound extends Schema.TaggedError<TextNotFound>()('TextNotFou
 export class TextNotUnique extends Schema.TaggedError<TextNotUnique>()('TextNotUnique', {
   path: Schema.String,
   occurrences: Schema.Int,
-  reason: Schema.String,
-}) {}
-
-export class FileNotRead extends Schema.TaggedError<FileNotRead>()('FileNotRead', {
-  path: Schema.String,
   reason: Schema.String,
 }) {}
 
@@ -97,19 +95,6 @@ const sightings = (contents: string, sought: string, wanted: string): ReadonlyAr
   })
 }
 
-const writeFile = Tool.make('write_file', {
-  description: [
-    'Write content to file, creating any missing parent directories. Writing over a file that',
-    'already exists requires having read all of it first, so that what is replaced is known; a',
-    'read that was cut short by offset, limit or the character budget does not count. To change',
-    'part of a file, prefer edit_file, which needs no prior read.',
-  ].join(' '),
-  parameters: Schema.Struct({ path: Schema.String, content: Schema.String }),
-  success: Schema.String,
-  failure: Schema.Union([FileNotRead, FileSystemRefused]),
-  failureMode: 'return',
-})
-
 const editFile = Tool.make('edit_file', {
   description: [
     'Replace text in file. `old_text` must appear exactly once: when it appears more often the',
@@ -128,9 +113,15 @@ const editFile = Tool.make('edit_file', {
   failureMode: 'return',
 })
 
-const core = Toolkit.make(writeFile, editFile)
+const core = Toolkit.make(editFile)
 
-export const toolkit = Toolkit.merge(core, Bash.toolkit, Glob.toolkit, ReadFile.toolkit)
+export const toolkit = Toolkit.merge(
+  core,
+  Bash.toolkit,
+  Glob.toolkit,
+  ReadFile.toolkit,
+  WriteFile.toolkit,
+)
 
 export type Handlers = Tool.HandlersFor<(typeof toolkit)['tools']>
 
@@ -142,6 +133,7 @@ export const toolkitLayer: Layer.Layer<
   Bash.layer,
   Glob.layer,
   ReadFile.layer,
+  WriteFile.layer,
   core.toLayer(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
@@ -152,38 +144,6 @@ export const toolkitLayer: Layer.Layer<
       const files = yield* Files
 
       return core.of({
-        write_file: Effect.fn('write_file')(function* ({ content, path: target }) {
-          yield* Console.log(`write ${target}`)
-
-          const resolved = path.resolve(root, target)
-
-          const existed = yield* fs.exists(resolved).pipe(Effect.mapError(refused))
-
-          if (existed) {
-            const info = yield* fs.stat(resolved).pipe(Effect.mapError(refused))
-
-            const remembered = yield* files.rememberedAt(resolved)
-
-            if (remembered === undefined || modifiedAt(info) > remembered) {
-              return yield* new FileNotRead({
-                path: target,
-                reason:
-                  remembered === undefined
-                    ? `write_file will not overwrite ${target} unseen — read_file all of it first, so the content it replaces is known`
-                    : `write_file will not overwrite ${target}: it changed on disk after you read it — read_file it again before replacing it`,
-              })
-            }
-          }
-
-          yield* files.write(resolved, content)
-
-          yield* files.remember(resolved)
-
-          const written = new TextEncoder().encode(content).length
-
-          return `${existed ? 'Overwrote' : 'Created'} ${target} (${written} bytes)`
-        }),
-
         edit_file: Effect.fn('edit_file')(function* ({
           new_text: wanted,
           old_text: sought,
