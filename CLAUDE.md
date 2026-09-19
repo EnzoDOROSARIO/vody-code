@@ -46,6 +46,16 @@ That three-way patch demands exact versions — `@effect/tsgo@0.45.0` supports `
 
 `tsconfig.json` is a solution file: it holds no sources, only references to the packages. `bun run typecheck` is `tsc -b`, which walks them. A new package needs a reference entry, or nothing typechecks it.
 
+## Imports
+
+Each package maps `#*` to its own `./src/*` through the `imports` field in its `package.json`, so an import that would climb out of its directory names its target from the package root instead: `#workspace.ts`, `#tools/index.ts`, `#__test__/testing.ts`. A sibling stays relative — `./errors.ts` reads better than `#tools/errors.ts` and is no harder to follow.
+
+The leading `#` is the whole of the prefix. `"#/*": "./src/*"` looks tidier and cannot be used: the resolution algorithm rejects any specifier that is exactly `#` or starts with `#/`, so Bun fails it with `Cannot find module '#/…'`. `moduleResolution: "bundler"` in `tsconfig.base.json` is what makes the field visible to `tsc` as well as to Bun.
+
+`imports` belongs to the package that declares it, so `#tools/index.ts` inside `tui` would mean `tui`'s own `src/tools`, not `agent`'s. Reach for another package by its name, as `tui` already does with `agent`.
+
+Keeping siblings relative also keeps a lint rule working: `anti-slop-effect/no-service-constructor-imports` only inspects specifiers beginning `./` or `../`, so a `#` import slips past it. The constructors it guards live beside their callers, where the relative form still applies.
+
 ## Git hooks
 
 Lefthook runs the `bun run check` gates on `pre-commit`, from `lefthook.yml`: lint, then format, then typecheck, stopping at the first failure. All three cover the whole repo rather than staged paths, since `tsc -b` is project-wide anyway. The format job is `format:check`, not `format` — a hook that rewrote files would leave the staged snapshot and the working tree disagreeing, so it reports and you run `bun run format`.

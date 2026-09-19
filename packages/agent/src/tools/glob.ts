@@ -7,7 +7,7 @@ import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
 import { FileSystemRefused, refused } from './errors.ts'
 import { modifiedAt } from './files.ts'
-import { Workspace } from '../workspace.ts'
+import { Workspace } from '#workspace.ts'
 
 const MAX_MATCHES = 200
 

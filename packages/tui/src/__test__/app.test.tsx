@@ -2,9 +2,9 @@ import { expect, test } from 'bun:test'
 import { Effect } from 'effect'
 import { renderToString } from 'ink'
 
-import { App, Prompt, Transcript, keystroke } from '../app.tsx'
+import { App, Prompt, Transcript, keystroke } from '#app.tsx'
 
-import type { Chord } from '../app.tsx'
+import type { Chord } from '#app.tsx'
 
 const chord = (pressed: Partial<Chord>): Chord => ({
   backspace: false,

@@ -7,6 +7,9 @@
   },
   "type": "module",
   "module": "src/index.tsx",
+  "imports": {
+    "#*": "./src/*"
+  },
   "exports": {
     ".": "./src/index.tsx"
   },

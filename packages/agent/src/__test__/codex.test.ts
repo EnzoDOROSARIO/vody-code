@@ -13,7 +13,7 @@ import {
 } from 'effect'
 import { HttpClientRequest } from 'effect/unstable/http'
 
-import { credentials, withEncryptedReasoning } from '../codex.ts'
+import { credentials, withEncryptedReasoning } from '#codex.ts'
 
 const ACCOUNT = 'fake-account-id'
 

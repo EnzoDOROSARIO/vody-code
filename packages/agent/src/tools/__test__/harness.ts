@@ -3,8 +3,8 @@ import { DateTime, Effect, FileSystem, Predicate, Stream } from 'effect'
 
 import type { AiError, Tool, Toolkit } from 'effect/unstable/ai'
 
-import { toolkit } from '../index.ts'
-import { services } from '../../__test__/testing.ts'
+import { toolkit } from '#tools/index.ts'
+import { services } from '#__test__/testing.ts'
 
 type Tools = (typeof toolkit)['tools']
 

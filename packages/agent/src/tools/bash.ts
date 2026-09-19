@@ -4,7 +4,7 @@ import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
-import { Workspace } from '../workspace.ts'
+import { Workspace } from '#workspace.ts'
 
 const PREVIEW_CHARACTERS = 200
 

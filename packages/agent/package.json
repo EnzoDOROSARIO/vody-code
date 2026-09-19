@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "module": "src/index.ts",
+  "imports": {
+    "#*": "./src/*"
+  },
   "exports": {
     ".": "./src/index.ts"
   },

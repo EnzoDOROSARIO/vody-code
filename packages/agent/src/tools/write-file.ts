@@ -5,7 +5,7 @@ import { Tool, Toolkit } from 'effect/unstable/ai'
 
 import { FileSystemRefused, refused } from './errors.ts'
 import { Files, modifiedAt } from './files.ts'
-import { Workspace } from '../workspace.ts'
+import { Workspace } from '#workspace.ts'
 
 export class FileNotRead extends Schema.TaggedError<FileNotRead>()('FileNotRead', {
   path: Schema.String,

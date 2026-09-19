@@ -6,7 +6,7 @@ import { Tool, Toolkit } from 'effect/unstable/ai'
 import { FileSystemRefused, refused } from './errors.ts'
 import { Files } from './files.ts'
 import { numbered, toLines } from './text.ts'
-import { Workspace } from '../workspace.ts'
+import { Workspace } from '#workspace.ts'
 
 const DEFAULT_LINE_LIMIT = 2000
 
