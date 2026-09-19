@@ -15,9 +15,6 @@ import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/
 
 const MODEL = 'gpt-5.6-sol'
 
-// Undocumented, and the only way to reach a ChatGPT subscription as a plain
-// model: every supported Codex interface runs Codex's own agent loop instead.
-// It speaks the Responses API, so @effect/ai-openai drives it unmodified.
 const API_URL = 'https://chatgpt.com/backend-api/codex'
 
 export class CodexAuthenticationRequired extends Schema.TaggedError<CodexAuthenticationRequired>()(
@@ -62,7 +59,6 @@ export interface CodexCredentials {
   readonly accountId: Redacted.Redacted
 }
 
-// Read per request, never cached: the Codex CLI refreshes the token in place.
 export const credentials: Effect.Effect<
   CodexCredentials,
   CodexAuthenticationRequired,
@@ -110,9 +106,6 @@ export const credentials: Effect.Effect<
   }
 })
 
-// The endpoint requires `store: false`, and @effect/ai-openai only asks for
-// encrypted reasoning on models it recognises by name. Without it, reasoning is
-// dropped between turns and tool calling degrades.
 export const withEncryptedReasoning = (
   request: HttpClientRequest.HttpClientRequest,
 ): HttpClientRequest.HttpClientRequest => {

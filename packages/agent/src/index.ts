@@ -1,55 +1,26 @@
-import { Console, Effect, Layer, Schema, Stream } from 'effect'
+import { Effect, Layer, Stream } from 'effect'
 
-import type { FileSystem } from 'effect'
-import { Chat, Prompt, Tool, Toolkit } from 'effect/unstable/ai'
-import type { AiError, LanguageModel } from 'effect/unstable/ai'
+import type { FileSystem, Path } from 'effect'
+import { Chat, Prompt } from 'effect/unstable/ai'
+import type { AiError, LanguageModel, Toolkit } from 'effect/unstable/ai'
 import { FetchHttpClient } from 'effect/unstable/http'
-import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
+import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import * as Codex from './codex.ts'
+import { toolkitLayer } from './tools.ts'
+import { Workspace } from './workspace.ts'
 
-const systemPrompt = `You are a coding agent at ${process.cwd()}. Use bash to solve tasks. Act, don't explain.`
+import type { Handlers, toolkit } from './tools.ts'
 
-const bash = Tool.make('bash', {
-  description: 'Run a shell command.',
-  parameters: Schema.Struct({ command: Schema.String }),
-  success: Schema.String,
-})
+export { toolkit } from './tools.ts'
 
-export const toolkit = Toolkit.make(bash)
+export { Workspace } from './workspace.ts'
 
-export const toolkitLayer: Layer.Layer<
-  Tool.Handler<'bash'>,
-  never,
-  ChildProcessSpawner.ChildProcessSpawner
-> = toolkit.toLayer(
-  Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+export type { Handlers } from './tools.ts'
 
-    return toolkit.of({
-      bash: Effect.fn('bash')(function* ({ command }) {
-        yield* Console.log(`$ ${command}`)
+const systemPrompt = (workspace: string): string =>
+  `You are a coding agent at ${workspace}. Use your tools to solve tasks. Act, don't explain.`
 
-        const output = yield* spawner
-          .string(ChildProcess.make('sh', ['-c', command]), { includeStderr: true })
-          .pipe(Effect.orDie)
-
-        yield* Console.log(output.slice(0, 200))
-
-        return output
-      }),
-    })
-  }),
-)
-
-/**
- * One turn of the loop, streamed.
- *
- * `streamText` rather than `generateText` because the ChatGPT Codex backend
- * only serves streaming responses — it rejects a non-streamed request outright.
- * The two differ in delivery, not in meaning: the same parts arrive either way,
- * and `Chat` still runs the tool handlers, so the decision below is unchanged.
- */
 const turn = (
   chat: Chat.Chat,
   tools: Toolkit.WithHandler<(typeof toolkit)['tools']>,
@@ -82,8 +53,6 @@ export const answer = (
   question: string,
 ): Effect.Effect<string, AiError.AiError, LanguageModel.LanguageModel> =>
   Effect.gen(function* () {
-    // The first turn carries the question; later turns add nothing, since the
-    // chat already holds the tool results the model needs to read.
     let prompt: Prompt.RawInput = question
 
     while (true) {
@@ -97,13 +66,12 @@ export const answer = (
     }
   })
 
-/** A fresh conversation, carrying the system prompt. */
-export const chat: Effect.Effect<Chat.Chat> = Chat.fromPrompt(
-  Prompt.empty.pipe(Prompt.setSystem(systemPrompt)),
+export const chat: Effect.Effect<Chat.Chat> = Effect.flatMap(Workspace, (directory) =>
+  Chat.fromPrompt(Prompt.empty.pipe(Prompt.setSystem(systemPrompt(directory)))),
 )
 
 export const layer: Layer.Layer<
-  LanguageModel.LanguageModel | Tool.Handler<'bash'>,
+  LanguageModel.LanguageModel | Handlers,
   Codex.CodexAuthenticationRequired,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
 > = Layer.mergeAll(toolkitLayer, Codex.layer.pipe(Layer.provide(FetchHttpClient.layer)))

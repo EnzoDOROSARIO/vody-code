@@ -1,15 +1,17 @@
-import { BunServices } from '@effect/platform-bun'
 import { expect, test } from 'bun:test'
 import { Effect, Layer, Ref, Stream } from 'effect'
 import { TestConsole } from 'effect/testing'
 import { Chat, LanguageModel, Prompt } from 'effect/unstable/ai'
-import type { Response, Tool } from 'effect/unstable/ai'
+import type { Response } from 'effect/unstable/ai'
 
-import { answer, toolkit, toolkitLayer } from './index.ts'
+import type { BunServices } from '@effect/platform-bun'
 
-// The loop streams, so the model is scripted as a stream. The first turn calls
-// the tool; the second answers in two deltas, which is also what proves the
-// loop assembles a streamed reply rather than waiting for one whole message.
+import { answer } from './index.ts'
+import { services } from './testing.ts'
+import { toolkit } from './tools.ts'
+
+import type { Handlers } from './tools.ts'
+
 const scriptedParts = (turn: number): Array<Response.StreamPartEncoded> =>
   turn === 0
     ? [{ type: 'tool-call', id: 'call-1', name: 'bash', params: { command: 'echo hi' } }]
@@ -36,15 +38,13 @@ const scriptedModel = Layer.effect(
   }),
 )
 
-const layer = Layer.mergeAll(scriptedModel, toolkitLayer, TestConsole.layer).pipe(
-  Layer.provideMerge(BunServices.layer),
-)
+const layer = Layer.mergeAll(scriptedModel, services(process.cwd()))
 
 type Provided =
   | BunServices.BunServices
   | LanguageModel.LanguageModel
+  | Handlers
   | TestConsole.TestConsole
-  | Tool.Handler<'bash'>
 
 const run = <A, E>(program: Effect.Effect<A, E, Provided>): Promise<A> =>
   // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point

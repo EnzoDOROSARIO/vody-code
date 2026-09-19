@@ -15,8 +15,6 @@ import { HttpClientRequest } from 'effect/unstable/http'
 
 import { credentials, withEncryptedReasoning } from './codex.ts'
 
-// Fabricated: an unsigned JWT over invented claims, written to a throwaway
-// CODEX_HOME so no test can read or disturb the real Codex session.
 const ACCOUNT = 'fake-account-id'
 
 const token = (exp: number): string =>
@@ -38,7 +36,6 @@ const homes: Array<string> = []
 
 let made = 0
 
-/** A throwaway CODEX_HOME, handed over as config rather than as global state. */
 const codexHome = async (authJson: string | undefined): Promise<string> => {
   made += 1
 
