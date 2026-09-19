@@ -17,10 +17,12 @@ the tool handlers, so the loop itself is the `while` that decides whether to go 
 
 ## Run it
 
+The model is Codex, reached with your ChatGPT subscription. Sign in once with the Codex CLI,
+which owns the credentials and refreshes them — this repo only reads them:
+
 ```sh
-export ANTHROPIC_API_KEY=...
-export MODEL_ID=claude-opus-5   # optional; this is the default
-bun run agent                   # from the repo root
+codex login
+bun run agent   # from the repo root
 ```
 
 Ask it something, press Enter, and watch the `$ ` lines: those are the commands the model
@@ -38,5 +40,12 @@ where the loop stops.
 > The agent runs shell commands the model wrote, with no permission prompt and no sandbox.
 > Run it somewhere you don't mind it touching.
 
+## Where Codex fits
+
+`src/codex.ts` reads the token the Codex CLI stored and puts the model behind Effect AI's
+`LanguageModel`, so the loop above never learns that its model is authenticated by a
+subscription. Inference posts to the ChatGPT Codex Responses endpoint, which OpenAI does not
+document — the file says why, and why there is no supported alternative.
+
 Adapted from [learn-claude-code s01](https://github.com/shareAI-lab/learn-claude-code/blob/main/s01_agent_loop/README.md),
-with Effect AI in place of a direct Anthropic SDK call.
+with Effect AI in place of a direct SDK call.

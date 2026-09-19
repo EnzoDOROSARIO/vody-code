@@ -7,10 +7,16 @@ import type { Response, Tool } from 'effect/unstable/ai'
 
 import { answer, toolkit, toolkitLayer } from './index.ts'
 
-const scriptedParts = (turn: number): Array<Response.PartEncoded> =>
+// The loop streams, so the model is scripted as a stream. The first turn calls
+// the tool; the second answers in two deltas, which is also what proves the
+// loop assembles a streamed reply rather than waiting for one whole message.
+const scriptedParts = (turn: number): Array<Response.StreamPartEncoded> =>
   turn === 0
     ? [{ type: 'tool-call', id: 'call-1', name: 'bash', params: { command: 'echo hi' } }]
-    : [{ type: 'text', text: 'it printed hi' }]
+    : [
+        { type: 'text-delta', id: 'text-1', delta: 'it printed ' },
+        { type: 'text-delta', id: 'text-1', delta: 'hi' },
+      ]
 
 const scriptedModel = Layer.effect(
   LanguageModel.LanguageModel,
@@ -18,12 +24,14 @@ const scriptedModel = Layer.effect(
     const turns = yield* Ref.make(0)
 
     return yield* LanguageModel.make({
-      generateText: () =>
-        Effect.map(
-          Ref.getAndUpdate(turns, (turn) => turn + 1),
-          scriptedParts,
+      generateText: () => Effect.succeed([]),
+      streamText: () =>
+        Stream.unwrap(
+          Effect.map(
+            Ref.getAndUpdate(turns, (turn) => turn + 1),
+            (turn) => Stream.fromIterable(scriptedParts(turn)),
+          ),
         ),
-      streamText: () => Stream.empty,
     })
   }),
 )

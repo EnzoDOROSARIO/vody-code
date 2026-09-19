@@ -1,9 +1,12 @@
-import { AnthropicClient, AnthropicLanguageModel } from '@effect/ai-anthropic'
-import { Config, Console, Effect, Layer, Schema, Terminal } from 'effect'
+import { Console, Effect, Layer, Schema, Stream, Terminal } from 'effect'
+
+import type { FileSystem } from 'effect'
 import { Chat, Prompt, Tool, Toolkit } from 'effect/unstable/ai'
 import type { AiError, LanguageModel } from 'effect/unstable/ai'
 import { FetchHttpClient } from 'effect/unstable/http'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
+
+import * as Codex from './codex.ts'
 
 const systemPrompt = `You are a coding agent at ${process.cwd()}. Use bash to solve tasks. Act, don't explain.`
 
@@ -39,6 +42,40 @@ export const toolkitLayer: Layer.Layer<
   }),
 )
 
+/**
+ * One turn of the loop, streamed.
+ *
+ * `streamText` rather than `generateText` because the ChatGPT Codex backend
+ * only serves streaming responses — it rejects a non-streamed request outright.
+ * The two differ in delivery, not in meaning: the same parts arrive either way,
+ * and `Chat` still runs the tool handlers, so the decision below is unchanged.
+ */
+const turn = (
+  chat: Chat.Chat,
+  tools: Toolkit.WithHandler<(typeof toolkit)['tools']>,
+  prompt: Prompt.RawInput,
+): Effect.Effect<
+  { readonly calledTools: boolean; readonly text: string },
+  AiError.AiError,
+  LanguageModel.LanguageModel
+> =>
+  Effect.gen(function* () {
+    const parts = yield* Stream.runCollect(chat.streamText({ prompt, toolkit: tools }))
+
+    let calledTools = false
+    let text = ''
+
+    for (const part of parts) {
+      if (part.type === 'text-delta') {
+        text += part.delta
+      } else if (part.type === 'tool-call') {
+        calledTools = true
+      }
+    }
+
+    return { calledTools, text }
+  })
+
 export const answer = (
   chat: Chat.Chat,
   tools: Toolkit.WithHandler<(typeof toolkit)['tools']>,
@@ -50,9 +87,9 @@ export const answer = (
     let prompt: Prompt.RawInput = question
 
     while (true) {
-      const response = yield* chat.generateText({ prompt, toolkit: tools })
+      const response = yield* turn(chat, tools, prompt)
 
-      if (response.toolCalls.length === 0) {
+      if (!response.calledTools) {
         return response.text
       }
 
@@ -84,20 +121,6 @@ export const main: Effect.Effect<
 
 export const layer: Layer.Layer<
   LanguageModel.LanguageModel | Tool.Handler<'bash'>,
-  Config.ConfigError,
-  ChildProcessSpawner.ChildProcessSpawner
-> = Layer.mergeAll(
-  toolkitLayer,
-  Layer.unwrap(
-    Config.String('MODEL_ID').pipe(
-      Config.withDefault('claude-opus-5'),
-      Effect.map((model) => AnthropicLanguageModel.layer({ model })),
-    ),
-  ).pipe(
-    Layer.provide(
-      AnthropicClient.layerConfig({ apiKey: Config.Redacted('ANTHROPIC_API_KEY') }).pipe(
-        Layer.provide(FetchHttpClient.layer),
-      ),
-    ),
-  ),
-)
+  Codex.CodexAuthenticationRequired,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem
+> = Layer.mergeAll(toolkitLayer, Codex.layer.pipe(Layer.provide(FetchHttpClient.layer)))
