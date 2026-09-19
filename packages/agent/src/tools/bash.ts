@@ -1,12 +1,10 @@
-import { Console, Duration, Effect, FileSystem, Schema, Stream } from 'effect'
+import { Duration, Effect, FileSystem, Schema, Stream } from 'effect'
 
 import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
 import { Workspace } from '#workspace.ts'
-
-const PREVIEW_CHARACTERS = 200
 
 const MAX_OUTPUT_CHARACTERS = 30_000
 
@@ -140,8 +138,6 @@ export const layer: Layer.Layer<
 
     return toolkit.of({
       bash: Effect.fn('bash')(function* ({ command, timeout_seconds: requested }) {
-        yield* Console.log(`$ ${command}`)
-
         const seconds = Math.min(requested ?? DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS)
 
         const output = yield* makeOutput(fs)
@@ -190,8 +186,6 @@ export const layer: Layer.Layer<
         )
 
         const shown = yield* output.seal
-
-        yield* Console.log(shown.slice(0, PREVIEW_CHARACTERS))
 
         return `exit ${code}\n${shown}`
       }),

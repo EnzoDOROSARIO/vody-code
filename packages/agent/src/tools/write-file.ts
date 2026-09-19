@@ -1,4 +1,4 @@
-import { Console, Effect, FileSystem, Path, Schema } from 'effect'
+import { Effect, FileSystem, Path, Schema } from 'effect'
 
 import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
@@ -43,8 +43,6 @@ export const layer: Layer.Layer<
 
     return toolkit.of({
       write_file: Effect.fn('write_file')(function* ({ content, path: target }) {
-        yield* Console.log(`write ${target}`)
-
         const resolved = path.resolve(root, target)
 
         const existed = yield* fs.exists(resolved).pipe(Effect.mapError(refused))

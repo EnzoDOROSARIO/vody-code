@@ -1,4 +1,4 @@
-import { Console, Effect, FileSystem, Path, Schema } from 'effect'
+import { Effect, FileSystem, Path, Schema } from 'effect'
 
 import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
@@ -122,8 +122,6 @@ export const layer: Layer.Layer<
         path: target,
         replace_all: every,
       }) {
-        yield* Console.log(`edit ${target}`)
-
         const resolved = path.resolve(root, target)
 
         const bytes = yield* fs.readFile(resolved).pipe(Effect.mapError(refused))

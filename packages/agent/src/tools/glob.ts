@@ -1,4 +1,4 @@
-import { Console, Effect, FileSystem, Path, Schema } from 'effect'
+import { Effect, FileSystem, Path, Schema } from 'effect'
 
 import type { Layer } from 'effect'
 
@@ -79,8 +79,6 @@ export const layer: Layer.Layer<
 
     return toolkit.of({
       glob: Effect.fn('glob')(function* ({ pattern }) {
-        yield* Console.log(`glob ${pattern}`)
-
         const exclude = yield* excludesFor(pattern)
 
         const matches = yield* fs.glob(pattern, { exclude, root }).pipe(Effect.mapError(refused))

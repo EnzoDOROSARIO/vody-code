@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test'
 import { Effect, Layer, Ref, Stream } from 'effect'
-import { TestConsole } from 'effect/testing'
 import { Chat, LanguageModel, Prompt } from 'effect/unstable/ai'
 import type { Response } from 'effect/unstable/ai'
 
@@ -10,6 +9,7 @@ import { answer } from '#index.ts'
 import { services } from './testing.ts'
 import { toolkit } from '#tools/index.ts'
 
+import type { Activity } from '#activity.ts'
 import type { Handlers } from '#tools/index.ts'
 
 const scriptedParts = (turn: number): Array<Response.StreamPartEncoded> =>
@@ -40,44 +40,63 @@ const scriptedModel = Layer.effect(
 
 const layer = Layer.mergeAll(scriptedModel, services(process.cwd()))
 
-type Provided =
-  | BunServices.BunServices
-  | LanguageModel.LanguageModel
-  | Handlers
-  | TestConsole.TestConsole
+type Provided = BunServices.BunServices | LanguageModel.LanguageModel | Handlers
 
 const run = <A, E>(program: Effect.Effect<A, E, Provided>): Promise<A> =>
   // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
   Effect.runPromise(program.pipe(Effect.provide(layer)))
 
-test('the loop runs the tool the model asks for, then returns its answer', async () => {
-  const outcome = await run(
+const asking = (...questions: ReadonlyArray<string>): Promise<Array<Activity>> =>
+  run(
     Effect.gen(function* () {
       const tools = yield* toolkit
       const chat = yield* Chat.fromPrompt(Prompt.empty)
 
-      const reply = yield* answer(chat, tools, 'say hi')
-      const printed = yield* TestConsole.logLines
+      const seen: Array<Activity> = []
 
-      return { printed, reply }
+      for (const question of questions) {
+        yield* Stream.runForEach(answer(chat, tools, question), (activity) =>
+          Effect.sync(() => {
+            seen.push(activity)
+          }),
+        )
+      }
+
+      return seen
     }),
   )
 
-  expect(outcome.reply).toBe('it printed hi')
-  expect(outcome.printed).toEqual(['$ echo hi', 'hi\n'])
+test('the loop runs the tool the model asks for, then reports its answer', async () => {
+  const [call, result, reply] = await asking('say hi')
+
+  expect(call).toMatchObject({
+    name: 'bash',
+    params: { command: 'echo hi' },
+    type: 'tool-call',
+  })
+  expect(result).toMatchObject({ isFailure: false, name: 'bash', type: 'tool-result' })
+  expect(reply).toEqual({ type: 'reply', text: 'it printed hi' })
+})
+
+test('a bash call arrives typed, not as an anonymous payload', async () => {
+  const [call] = await asking('say hi')
+
+  if (call?.type !== 'tool-call' || call.name !== 'bash') {
+    throw new Error(`expected a bash call, got ${String(call?.type)}`)
+  }
+
+  // The annotation is the assertion. A streamed tool call carries its arguments as
+  // `unknown`, and they are a command again only because the agent parses them back.
+  const command: string = call.params.command
+
+  expect(command).toBe('echo hi')
 })
 
 test('the loop stops on a turn with no tool call', async () => {
-  const reply = await run(
-    Effect.gen(function* () {
-      const tools = yield* toolkit
-      const chat = yield* Chat.fromPrompt(Prompt.empty)
+  const activities = await asking('say hi', 'and again')
 
-      yield* answer(chat, tools, 'say hi')
-
-      return yield* answer(chat, tools, 'and again')
-    }),
-  )
-
-  expect(reply).toBe('it printed hi')
+  expect(activities.filter((activity) => activity.type === 'reply')).toEqual([
+    { type: 'reply', text: 'it printed hi' },
+    { type: 'reply', text: 'it printed hi' },
+  ])
 })

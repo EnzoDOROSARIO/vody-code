@@ -1,10 +1,17 @@
 import { expect, test } from 'bun:test'
+import chalk from 'chalk'
 import { Effect } from 'effect'
+import { Response } from 'effect/unstable/ai'
 import { renderToString } from 'ink'
 
-import { App, Prompt, Transcript, keystroke } from '#app.tsx'
+import { App, Prompt, Transcript, keystroke, transcribe } from '#app.tsx'
 
+import { CommandRefused } from 'agent'
+
+import type { ToolResult } from 'agent'
+import type { Line } from '#app.tsx'
 import type { Chord } from '#app.tsx'
+import type { ReactElement } from 'react'
 
 const chord = (pressed: Partial<Chord>): Chord => ({
   backspace: false,
@@ -17,12 +24,146 @@ const chord = (pressed: Partial<Chord>): Chord => ({
 
 const RETURN = chord({ return: true })
 
-const never: () => Promise<string> = () => Effect.runPromise(Effect.never)
+const never: () => Promise<void> = () => Effect.runPromise(Effect.never)
+
+const GREY_BACKGROUND = '\u001B[100m'
+
+const DIM = '\u001B[2m'
+
+// Ink paints through chalk, which keeps quiet when nothing on the other end is a
+// terminal. Turning it up around one render is the only way to see what a real one
+// gets, and the render is synchronous, so nothing else observes the raised level.
+//
+// This only works while `chalk` here resolves to the copy Ink paints with. Should the
+// two ever part — Ink moving to a major this package does not follow — the render
+// comes back bare, so the check below names that cause instead of leaving the
+// assertions underneath to fail as if the styling had been dropped.
+const colourful = (node: ReactElement): string => {
+  const level = chalk.level
+
+  chalk.level = 3
+
+  try {
+    const painted = renderToString(node)
+
+    if (!painted.includes('\u001B[')) {
+      throw new Error('chalk painted nothing: this package and ink hold separate copies')
+    }
+
+    return painted
+  } finally {
+    chalk.level = level
+  }
+}
+
+const transcript: ReadonlyArray<Line> = [
+  { source: 'you', text: '> say hi' },
+  { source: 'tool', text: '$ echo hi' },
+  { source: 'agent', text: 'hi' },
+]
+
+const ranBash: ToolResult = Response.toolResultPart({
+  encodedResult: 'exit 0\nhi',
+  id: 'call-1',
+  isFailure: false,
+  name: 'bash',
+  preliminary: false,
+  providerExecuted: false,
+  result: 'exit 0\nhi',
+})
+
+const readFile: ToolResult = Response.toolResultPart({
+  encodedResult: 'the whole file',
+  id: 'call-2',
+  isFailure: false,
+  name: 'read_file',
+  preliminary: false,
+  providerExecuted: false,
+  result: 'the whole file',
+})
+
+test('each tool call is announced in the wording that suits it', () => {
+  expect(
+    transcribe({ id: 'c', name: 'bash', params: { command: 'echo hi' }, type: 'tool-call' }),
+  ).toEqual({ source: 'tool', text: '$ echo hi' })
+  expect(
+    transcribe({ id: 'c', name: 'read_file', params: { path: 'a.ts' }, type: 'tool-call' }),
+  ).toEqual({ source: 'tool', text: 'read a.ts' })
+  expect(
+    transcribe({
+      id: 'c',
+      name: 'write_file',
+      params: { content: 'x', path: 'a.ts' },
+      type: 'tool-call',
+    }),
+  ).toEqual({ source: 'tool', text: 'write a.ts' })
+  expect(
+    transcribe({
+      id: 'c',
+      name: 'edit_file',
+      params: { new_text: 'b', old_text: 'a', path: 'a.ts' },
+      type: 'tool-call',
+    }),
+  ).toEqual({ source: 'tool', text: 'edit a.ts' })
+  expect(
+    transcribe({ id: 'c', name: 'glob', params: { pattern: '*.ts' }, type: 'tool-call' }),
+  ).toEqual({ source: 'tool', text: 'glob *.ts' })
+})
+
+test('bash quotes its output back, exit status first, and the others stay quiet', () => {
+  expect(transcribe(ranBash)).toEqual({ source: 'tool', text: 'exit 0\nhi' })
+  expect(transcribe(readFile)).toBeUndefined()
+})
+
+test('a tool that failed says which tool, and why', () => {
+  const refused: ToolResult = Response.toolResultPart({
+    encodedResult: {},
+    id: 'call-3',
+    isFailure: true,
+    name: 'bash',
+    preliminary: false,
+    providerExecuted: false,
+    result: new CommandRefused({ reason: 'rm -rf is not allowed here' }),
+  })
+
+  expect(transcribe(refused)).toEqual({
+    source: 'tool',
+    text: 'bash failed: rm -rf is not allowed here',
+  })
+})
+
+test('a call the agent never ran says so in the same breath', () => {
+  const denied: ToolResult = Response.toolResultPart({
+    encodedResult: {},
+    id: 'call-4',
+    isFailure: true,
+    name: 'write_file',
+    preliminary: false,
+    providerExecuted: false,
+    result: { reason: 'the user said no', type: 'execution-denied' },
+  })
+
+  expect(transcribe(denied)).toEqual({
+    source: 'tool',
+    text: 'write_file failed: the user said no',
+  })
+})
+
+test('the reply is the agent speaking, not a tool', () => {
+  expect(transcribe({ type: 'reply', text: 'done' })).toEqual({ source: 'agent', text: 'done' })
+})
 
 test('the transcript renders each line above the prompt', () => {
-  expect(renderToString(<Transcript lines={['> say hi', '$ echo hi', 'hi']} />)).toBe(
-    '> say hi\n$ echo hi\nhi',
-  )
+  expect(renderToString(<Transcript lines={transcript} />)).toBe('> say hi\n$ echo hi\nhi')
+})
+
+test('a tool line carries a grey background and dim text, and the rest carry neither', () => {
+  const [you, tool, agent] = colourful(<Transcript lines={transcript} />).split('\n')
+
+  expect(tool).toContain(GREY_BACKGROUND)
+  expect(tool).toContain(DIM)
+  expect(you).toBe('> say hi')
+  expect(agent).toBe('hi')
 })
 
 test('the prompt shows what has been typed so far', () => {

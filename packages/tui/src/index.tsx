@@ -1,18 +1,13 @@
 import { answer, chat, toolkit } from 'agent'
-import { Console, Effect } from 'effect'
+import { Effect, Stream } from 'effect'
 
-import type { Handlers } from 'agent'
+import type { Activity, Handlers } from 'agent'
 import type { LanguageModel } from 'effect/unstable/ai'
 import { render } from 'ink'
 
 import { App } from './app.tsx'
 
 import type { Ask } from './app.tsx'
-
-const writingTo = (write: (line: string) => void): Console.Console =>
-  Object.assign(Object.create(console), {
-    log: (...args: ReadonlyArray<string>) => write(args.join(' ')),
-  })
 
 export const main: Effect.Effect<void, never, Handlers | LanguageModel.LanguageModel> =
   Effect.scoped(
@@ -22,10 +17,11 @@ export const main: Effect.Effect<void, never, Handlers | LanguageModel.LanguageM
 
       const services = yield* Effect.context<Handlers | LanguageModel.LanguageModel>()
 
-      const ask: Ask = (question, write) =>
+      // The agent hands back what it did; the App decides what any of it looks like.
+      const ask: Ask = (question, show) =>
         Effect.runPromiseWith(services)(
-          answer(conversation, tools, question).pipe(
-            Effect.provideService(Console.Console, writingTo(write)),
+          Stream.runForEach(answer(conversation, tools, question), (activity: Activity) =>
+            Effect.sync(() => show(activity)),
           ),
         )
 

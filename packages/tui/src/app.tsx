@@ -1,16 +1,98 @@
+import { Predicate } from 'effect'
 import { Box, Text, useInput, useStdin } from 'ink'
 import { useState } from 'react'
 
+import { casesHandled } from './defects.ts'
+
+import type { Activity, ToolCall, ToolFailure, ToolResult } from 'agent'
 import type { Key } from 'ink'
 import type { ReactElement } from 'react'
 
-export type Ask = (question: string, write: (line: string) => void) => Promise<string>
+export type Ask = (question: string, show: (activity: Activity) => void) => Promise<void>
 
-export const Transcript = ({ lines }: { readonly lines: ReadonlyArray<string> }): ReactElement => (
+/** Who put a line in the transcript, which is all its styling depends on. */
+export type Source = 'agent' | 'tool' | 'you'
+
+export type Line = {
+  readonly source: Source
+  readonly text: string
+}
+
+const PREVIEW_CHARACTERS = 200
+
+// The agent reports that it called `bash` with a command; saying that back as a
+// shell prompt is this screen's business, and every tool gets the phrasing that
+// suits it. Adding a tool to the agent lands here as a missing branch.
+const asked = (call: ToolCall): string => {
+  switch (call.name) {
+    case 'bash':
+      return `$ ${call.params.command}`
+    case 'edit_file':
+      return `edit ${call.params.path}`
+    case 'glob':
+      return `glob ${call.params.pattern}`
+    case 'read_file':
+      return `read ${call.params.path}`
+    case 'write_file':
+      return `write ${call.params.path}`
+    default:
+      return casesHandled(call)
+  }
+}
+
+// Every tool states a failure in one string field, and so does a call the agent
+// declined to run. Only the model's own errors put something else there, and they
+// carry the sentence in `message` instead.
+const because = (failure: ToolFailure): string =>
+  Predicate.isTagged(failure, 'AiError') ? failure.message : failure.reason
+
+// A tool that worked has usually said what it did in the line announcing it, so only
+// `bash` is worth quoting back. A tool that failed has not been heard from at all.
+//
+// What `bash` returns opens with its exit status, so that status is what the first
+// line of the quote shows. The `Console.log` this replaced previewed the raw output
+// and left the status out; showing it costs a few characters of the preview and is
+// worth them. Anything narrower would mean reading a shape the agent composed for
+// the model, which is the coupling this screen exists to avoid.
+const gave = (result: ToolResult): string | undefined => {
+  if (result.isFailure) {
+    return `${result.name} failed: ${because(result.result)}`
+  }
+
+  return result.name === 'bash' ? result.result.slice(0, PREVIEW_CHARACTERS) : undefined
+}
+
+export const transcribe = (activity: Activity): Line | undefined => {
+  if (activity.type === 'reply') {
+    return { source: 'agent', text: activity.text }
+  }
+
+  if (activity.type === 'tool-call') {
+    return { source: 'tool', text: asked(activity) }
+  }
+
+  const shown = gave(activity)
+
+  return shown === undefined ? undefined : { source: 'tool', text: shown }
+}
+
+// A terminal has one font, so a tool's output is set apart the only two ways the
+// terminal offers: a grey slab behind it, and dim text to sit back from the reply.
+// The Box pads to the full width, so consecutive tool lines read as one block.
+const Entry = ({ line }: { readonly line: Line }): ReactElement =>
+  line.source === 'tool' ? (
+    <Box backgroundColor="gray">
+      <Text dimColor>{line.text}</Text>
+    </Box>
+  ) : (
+    <Text>{line.text}</Text>
+  )
+
+export const Transcript = ({ lines }: { readonly lines: ReadonlyArray<Line> }): ReactElement => (
   <Box flexDirection="column">
-    {lines.map((line, index) => (
+    {lines.map((entry, index) => (
       // oxlint-disable-next-line react/no-array-index-key -- append-only log
-      <Text key={index}>{line}</Text>
+      <Entry key={index} line={entry} />
     ))}
   </Box>
 )
@@ -52,19 +134,26 @@ export const Prompt = ({
 
 export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   const { isRawModeSupported } = useStdin()
-  const [lines, setLines] = useState<ReadonlyArray<string>>([])
+  const [lines, setLines] = useState<ReadonlyArray<Line>>([])
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const write = (line: string): void => setLines((all) => [...all, line])
+  const write = (entry: Line): void => setLines((all) => [...all, entry])
+
+  const show = (activity: Activity): void => {
+    const entry = transcribe(activity)
+
+    if (entry !== undefined) {
+      write(entry)
+    }
+  }
 
   const submit = (question: string): void => {
     setBusy(true)
-    write(`> ${question}`)
+    write({ source: 'you', text: `> ${question}` })
 
-    ask(question, write)
-      .then((reply) => write(reply))
-      .catch((error: Error) => write(error.message))
+    ask(question, show)
+      .catch((error: Error) => write({ source: 'agent', text: error.message }))
       .finally(() => setBusy(false))
   }
 

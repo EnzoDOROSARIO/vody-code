@@ -1,4 +1,4 @@
-import { Console, Effect, FileSystem, Path, Schema } from 'effect'
+import { Effect, FileSystem, Path, Schema } from 'effect'
 
 import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
@@ -115,8 +115,6 @@ export const layer: Layer.Layer<
 
     return toolkit.of({
       read_file: Effect.fn('read_file')(function* ({ limit, offset, path: target }) {
-        yield* Console.log(`read ${target}`)
-
         const resolved = path.resolve(root, target)
 
         const bytes = yield* fs.readFile(resolved).pipe(Effect.mapError(refused))
