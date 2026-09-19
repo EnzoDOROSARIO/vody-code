@@ -1,17 +1,16 @@
 import { expect, test } from 'bun:test'
-import chalk from 'chalk'
 import { Effect } from 'effect'
 import { Response } from 'effect/unstable/ai'
 import { renderToString } from 'ink'
 
 import { App, Prompt, Transcript, keystroke, transcribe } from '#app.tsx'
+import { DIM, GREY_BACKGROUND, colourful } from './testing.ts'
 
 import { CommandRefused } from 'agent'
 
 import type { ToolResult } from 'agent'
 import type { Line } from '#app.tsx'
 import type { Chord } from '#app.tsx'
-import type { ReactElement } from 'react'
 
 const chord = (pressed: Partial<Chord>): Chord => ({
   backspace: false,
@@ -25,36 +24,6 @@ const chord = (pressed: Partial<Chord>): Chord => ({
 const RETURN = chord({ return: true })
 
 const never: () => Promise<void> = () => Effect.runPromise(Effect.never)
-
-const GREY_BACKGROUND = '\u001B[100m'
-
-const DIM = '\u001B[2m'
-
-// Ink paints through chalk, which keeps quiet when nothing on the other end is a
-// terminal. Turning it up around one render is the only way to see what a real one
-// gets, and the render is synchronous, so nothing else observes the raised level.
-//
-// This only works while `chalk` here resolves to the copy Ink paints with. Should the
-// two ever part — Ink moving to a major this package does not follow — the render
-// comes back bare, so the check below names that cause instead of leaving the
-// assertions underneath to fail as if the styling had been dropped.
-const colourful = (node: ReactElement): string => {
-  const level = chalk.level
-
-  chalk.level = 3
-
-  try {
-    const painted = renderToString(node)
-
-    if (!painted.includes('\u001B[')) {
-      throw new Error('chalk painted nothing: this package and ink hold separate copies')
-    }
-
-    return painted
-  } finally {
-    chalk.level = level
-  }
-}
 
 const transcript: ReadonlyArray<Line> = [
   { source: 'you', text: '> say hi' },
@@ -164,6 +133,34 @@ test('a tool line carries a grey background and dim text, and the rest carry nei
   expect(call).toContain(DIM)
   expect(you).toBe('> say hi')
   expect(agent).toBe('hi')
+})
+
+// Only the agent writes markdown. What you typed is shown back exactly as typed, so a
+// glob or a star in a question survives, and a tool's output is text some other program
+// chose and is no one's to reformat.
+test('the agent is read as markdown, and nobody else is', () => {
+  expect(
+    renderToString(<Transcript lines={[{ source: 'agent', text: 'see `a.ts` and **b**' }]} />),
+  ).toBe('see a.ts and b')
+  expect(
+    renderToString(<Transcript lines={[{ source: 'you', text: '> use *.ts and **glob**' }]} />),
+  ).toBe('> use *.ts and **glob**')
+  expect(renderToString(<Transcript lines={[{ source: 'result', text: '- not a list' }]} />)).toBe(
+    '- not a list',
+  )
+})
+
+test('an agent line with nothing in it takes up no room', () => {
+  expect(
+    renderToString(
+      <Transcript
+        lines={[
+          { source: 'agent', text: '' },
+          { source: 'you', text: '> hi' },
+        ]}
+      />,
+    ),
+  ).toBe('> hi')
 })
 
 test('a chain of calls is broken up, while a call keeps the output under it', () => {

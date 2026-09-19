@@ -3,6 +3,7 @@ import { Box, Text, useInput, useStdin } from 'ink'
 import { useState } from 'react'
 
 import { casesHandled } from './defects.ts'
+import { Markdown } from './markdown.tsx'
 
 import type { Activity, ToolCall, ToolFailure, ToolResult } from 'agent'
 import type { Key } from 'ink'
@@ -83,14 +84,24 @@ export const transcribe = (activity: Activity): Line | undefined => {
 // The blank row above a call is what keeps the next tool from joining that block: one
 // chain of tools would otherwise arrive as a single slab with no seam to read it by.
 // It is a margin rather than an empty line so that nothing paints it grey.
-const Entry = ({ line }: { readonly line: Line }): ReactElement =>
-  line.source === 'agent' || line.source === 'you' ? (
-    <Text>{line.text}</Text>
-  ) : (
+//
+// Only the agent writes markdown. What you typed is shown back exactly as typed, and a
+// tool's output is already the text some other program chose.
+const Entry = ({ line }: { readonly line: Line }): ReactElement => {
+  if (line.source === 'agent') {
+    return <Markdown>{line.text}</Markdown>
+  }
+
+  if (line.source === 'you') {
+    return <Text>{line.text}</Text>
+  }
+
+  return (
     <Box backgroundColor="gray" marginTop={line.source === 'call' ? 1 : 0}>
       <Text dimColor>{line.text}</Text>
     </Box>
   )
+}
 
 export const Transcript = ({ lines }: { readonly lines: ReadonlyArray<Line> }): ReactElement => (
   <Box flexDirection="column">
