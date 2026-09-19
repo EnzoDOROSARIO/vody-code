@@ -66,4 +66,6 @@ The root `tui` script goes through `--cwd`, not `--filter`. `bun run --filter` c
 
 `bunfig.toml` scopes test discovery to `packages`, keeping the vendored suites under `repos/` out of `bun test`.
 
+Tests live in `src/__test__/` in each package, alongside what they need to run: `testing.ts` composes the layers, and `agent`'s `harness.ts` holds the temporary workspace and the call that runs one tool. Only `*.test.ts` is a test to Bun, so the scaffolding sits there without being run. `.oxlintrc.json` relaxes `effecttsgo/async-function` for `*.test.ts` alone, so a helper in `__test__/` is held to the same rules as the source.
+
 Ink views are tested with Ink's own `renderToString`, which renders to a string with no terminal and no timers. `ink-testing-library` is a separate, older package that pins React 18 — reach for `renderToString` instead.

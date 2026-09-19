@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
 
 import { call, removeWorkspaces, text, workspace } from './harness.ts'
-import { FileIsBinary, FileSystemRefused } from './index.ts'
+import { FileIsBinary, FileSystemRefused } from '../tools/index.ts'
 
 afterEach(removeWorkspaces)
 
