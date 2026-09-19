@@ -6,12 +6,11 @@ import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
 import { FileSystemRefused, refused } from './errors.ts'
 import { Files, modifiedAt } from './files.ts'
+import * as Glob from './glob.ts'
 import { countOccurrences, numbered, toLines } from './text.ts'
 import { Workspace } from '../workspace.ts'
 
 export { FileSystemRefused } from './errors.ts'
-
-const MAX_MATCHES = 200
 
 const PREVIEW_CHARACTERS = 200
 
@@ -29,11 +28,7 @@ const DEFAULT_TIMEOUT_SECONDS = 120
 
 const MAX_TIMEOUT_SECONDS = 600
 
-const STAT_CONCURRENCY = 32
-
 const CONTEXT_LINES = 3
-
-const ALWAYS_EXCLUDED = ['.git', 'node_modules', 'dist']
 
 const BYTE_ORDER_MARK = '\uFEFF'
 
@@ -266,15 +261,6 @@ const makeOutput = (fs: FileSystem.FileSystem): Effect.Effect<Output> =>
     return { collect, seal }
   })
 
-const literalPrefix = (pattern: string): string => {
-  const wildcard = pattern.search(/[*?[{]/)
-
-  return wildcard === -1 ? pattern : pattern.slice(0, wildcard)
-}
-
-const reachesInto = (prefix: string, entry: string): boolean =>
-  prefix === entry || prefix.startsWith(`${entry}/`)
-
 const bash = Tool.make('bash', {
   description: [
     'Run a shell command. The first line of the result is `exit <code>`. The rest is the command',
@@ -343,20 +329,9 @@ const editFile = Tool.make('edit_file', {
   failureMode: 'return',
 })
 
-const glob = Tool.make('glob', {
-  description: [
-    'Find files matching a glob pattern; ** matches recursively. Returns files only, most recently',
-    'modified first, so the useful matches come first when the list is cut short. Anything',
-    'gitignored is skipped, along with .git, node_modules and dist — unless the pattern names one',
-    'of those directly.',
-  ].join(' '),
-  parameters: Schema.Struct({ pattern: Schema.String }),
-  success: Schema.String,
-  failure: FileSystemRefused,
-  failureMode: 'return',
-})
+const core = Toolkit.make(bash, readFile, writeFile, editFile)
 
-export const toolkit = Toolkit.make(bash, readFile, writeFile, editFile, glob)
+export const toolkit = Toolkit.merge(core, Glob.toolkit)
 
 export type Handlers = Tool.HandlersFor<(typeof toolkit)['tools']>
 
@@ -364,8 +339,9 @@ export const toolkitLayer: Layer.Layer<
   Handlers,
   never,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
-> = toolkit
-  .toLayer(
+> = Layer.mergeAll(
+  Glob.layer,
+  core.toLayer(
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       const fs = yield* FileSystem.FileSystem
@@ -375,29 +351,7 @@ export const toolkitLayer: Layer.Layer<
 
       const files = yield* Files
 
-      const excludesFor = Effect.fn('excludesFor')(function* (pattern: string) {
-        const listed = yield* spawner
-          .string(
-            ChildProcess.make(
-              'git',
-              ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'],
-              { cwd: root },
-            ),
-          )
-          .pipe(Effect.orElseSucceed(() => ''))
-
-        const ignored = listed.split('\n').filter((entry) => entry !== '')
-
-        const reachedInto = literalPrefix(pattern)
-
-        return [...ALWAYS_EXCLUDED, ...ignored].flatMap((entry) => {
-          const trimmed = entry.endsWith('/') ? entry.slice(0, -1) : entry
-
-          return reachesInto(reachedInto, trimmed) ? [] : [trimmed, `${trimmed}/**`]
-        })
-      })
-
-      return toolkit.of({
+      return core.of({
         bash: Effect.fn('bash')(function* ({ command, timeout_seconds: requested }) {
           yield* Console.log(`$ ${command}`)
 
@@ -605,45 +559,7 @@ export const toolkitLayer: Layer.Layer<
 
           return `Edited ${target} (${occurrences} ${occurrences === 1 ? 'replacement' : 'replacements'})\n${snippet}`
         }),
-
-        glob: Effect.fn('glob')(function* ({ pattern }) {
-          yield* Console.log(`glob ${pattern}`)
-
-          const exclude = yield* excludesFor(pattern)
-
-          const matches = yield* fs.glob(pattern, { exclude, root }).pipe(Effect.mapError(refused))
-
-          const described = yield* Effect.forEach(
-            matches,
-            (match) =>
-              fs.stat(path.resolve(root, match)).pipe(
-                Effect.match({
-                  onFailure: () => [],
-                  onSuccess: (info) =>
-                    info.type === 'File' ? [{ at: modifiedAt(info), path: match }] : [],
-                }),
-              ),
-            { concurrency: STAT_CONCURRENCY },
-          )
-
-          const found = described
-            .flat()
-            .toSorted((left, right) => right.at - left.at || left.path.localeCompare(right.path))
-
-          if (found.length === 0) {
-            return '(no matches)'
-          }
-
-          const shown = found.slice(0, MAX_MATCHES).map((file) => file.path)
-
-          return found.length > MAX_MATCHES
-            ? [
-                ...shown,
-                `... (${found.length - MAX_MATCHES} more matches omitted, oldest first; narrow the pattern)`,
-              ].join('\n')
-            : shown.join('\n')
-        }),
       })
     }),
-  )
-  .pipe(Layer.provide(Files.layer))
+  ),
+).pipe(Layer.provide(Files.layer))
