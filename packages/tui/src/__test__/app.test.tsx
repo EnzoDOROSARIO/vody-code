@@ -58,7 +58,7 @@ const colourful = (node: ReactElement): string => {
 
 const transcript: ReadonlyArray<Line> = [
   { source: 'you', text: '> say hi' },
-  { source: 'tool', text: '$ echo hi' },
+  { source: 'call', text: '$ echo hi' },
   { source: 'agent', text: 'hi' },
 ]
 
@@ -85,10 +85,10 @@ const readFile: ToolResult = Response.toolResultPart({
 test('each tool call is announced in the wording that suits it', () => {
   expect(
     transcribe({ id: 'c', name: 'bash', params: { command: 'echo hi' }, type: 'tool-call' }),
-  ).toEqual({ source: 'tool', text: '$ echo hi' })
+  ).toEqual({ source: 'call', text: '$ echo hi' })
   expect(
     transcribe({ id: 'c', name: 'read_file', params: { path: 'a.ts' }, type: 'tool-call' }),
-  ).toEqual({ source: 'tool', text: 'read a.ts' })
+  ).toEqual({ source: 'call', text: 'read a.ts' })
   expect(
     transcribe({
       id: 'c',
@@ -96,7 +96,7 @@ test('each tool call is announced in the wording that suits it', () => {
       params: { content: 'x', path: 'a.ts' },
       type: 'tool-call',
     }),
-  ).toEqual({ source: 'tool', text: 'write a.ts' })
+  ).toEqual({ source: 'call', text: 'write a.ts' })
   expect(
     transcribe({
       id: 'c',
@@ -104,14 +104,14 @@ test('each tool call is announced in the wording that suits it', () => {
       params: { new_text: 'b', old_text: 'a', path: 'a.ts' },
       type: 'tool-call',
     }),
-  ).toEqual({ source: 'tool', text: 'edit a.ts' })
+  ).toEqual({ source: 'call', text: 'edit a.ts' })
   expect(
     transcribe({ id: 'c', name: 'glob', params: { pattern: '*.ts' }, type: 'tool-call' }),
-  ).toEqual({ source: 'tool', text: 'glob *.ts' })
+  ).toEqual({ source: 'call', text: 'glob *.ts' })
 })
 
 test('bash quotes its output back, exit status first, and the others stay quiet', () => {
-  expect(transcribe(ranBash)).toEqual({ source: 'tool', text: 'exit 0\nhi' })
+  expect(transcribe(ranBash)).toEqual({ source: 'result', text: 'exit 0\nhi' })
   expect(transcribe(readFile)).toBeUndefined()
 })
 
@@ -127,7 +127,7 @@ test('a tool that failed says which tool, and why', () => {
   })
 
   expect(transcribe(refused)).toEqual({
-    source: 'tool',
+    source: 'result',
     text: 'bash failed: rm -rf is not allowed here',
   })
 })
@@ -144,7 +144,7 @@ test('a call the agent never ran says so in the same breath', () => {
   })
 
   expect(transcribe(denied)).toEqual({
-    source: 'tool',
+    source: 'result',
     text: 'write_file failed: the user said no',
   })
 })
@@ -154,16 +154,35 @@ test('the reply is the agent speaking, not a tool', () => {
 })
 
 test('the transcript renders each line above the prompt', () => {
-  expect(renderToString(<Transcript lines={transcript} />)).toBe('> say hi\n$ echo hi\nhi')
+  expect(renderToString(<Transcript lines={transcript} />)).toBe('> say hi\n\n$ echo hi\nhi')
 })
 
 test('a tool line carries a grey background and dim text, and the rest carry neither', () => {
-  const [you, tool, agent] = colourful(<Transcript lines={transcript} />).split('\n')
+  const [you, , call, agent] = colourful(<Transcript lines={transcript} />).split('\n')
 
-  expect(tool).toContain(GREY_BACKGROUND)
-  expect(tool).toContain(DIM)
+  expect(call).toContain(GREY_BACKGROUND)
+  expect(call).toContain(DIM)
   expect(you).toBe('> say hi')
   expect(agent).toBe('hi')
+})
+
+test('a chain of calls is broken up, while a call keeps the output under it', () => {
+  const chained: ReadonlyArray<Line> = [
+    { source: 'call', text: '$ echo hi' },
+    { source: 'result', text: 'exit 0' },
+    { source: 'result', text: 'hi' },
+    { source: 'call', text: 'read a.ts' },
+  ]
+
+  expect(renderToString(<Transcript lines={chained} />)).toBe(
+    '\n$ echo hi\nexit 0\nhi\n\nread a.ts',
+  )
+})
+
+test('the gap above a call is bare, not another row of grey', () => {
+  const [, gap] = colourful(<Transcript lines={transcript} />).split('\n')
+
+  expect(gap).toBe('')
 })
 
 test('the prompt shows what has been typed so far', () => {

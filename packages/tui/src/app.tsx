@@ -11,7 +11,7 @@ import type { ReactElement } from 'react'
 export type Ask = (question: string, show: (activity: Activity) => void) => Promise<void>
 
 /** Who put a line in the transcript, which is all its styling depends on. */
-export type Source = 'agent' | 'tool' | 'you'
+export type Source = 'agent' | 'call' | 'result' | 'you'
 
 export type Line = {
   readonly source: Source
@@ -68,24 +68,28 @@ export const transcribe = (activity: Activity): Line | undefined => {
   }
 
   if (activity.type === 'tool-call') {
-    return { source: 'tool', text: asked(activity) }
+    return { source: 'call', text: asked(activity) }
   }
 
   const shown = gave(activity)
 
-  return shown === undefined ? undefined : { source: 'tool', text: shown }
+  return shown === undefined ? undefined : { source: 'result', text: shown }
 }
 
 // A terminal has one font, so a tool's output is set apart the only two ways the
 // terminal offers: a grey slab behind it, and dim text to sit back from the reply.
-// The Box pads to the full width, so consecutive tool lines read as one block.
+// The Box pads to the full width, so a call and the output under it read as one block.
+//
+// The blank row above a call is what keeps the next tool from joining that block: one
+// chain of tools would otherwise arrive as a single slab with no seam to read it by.
+// It is a margin rather than an empty line so that nothing paints it grey.
 const Entry = ({ line }: { readonly line: Line }): ReactElement =>
-  line.source === 'tool' ? (
-    <Box backgroundColor="gray">
+  line.source === 'agent' || line.source === 'you' ? (
+    <Text>{line.text}</Text>
+  ) : (
+    <Box backgroundColor="gray" marginTop={line.source === 'call' ? 1 : 0}>
       <Text dimColor>{line.text}</Text>
     </Box>
-  ) : (
-    <Text>{line.text}</Text>
   )
 
 export const Transcript = ({ lines }: { readonly lines: ReadonlyArray<Line> }): ReactElement => (
