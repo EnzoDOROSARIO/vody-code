@@ -27,6 +27,8 @@ const MAX_READ_CHARACTERS = 100_000
 
 const MAX_OUTPUT_CHARACTERS = 30_000
 
+const HELD_CHARACTERS = MAX_OUTPUT_CHARACTERS * 2
+
 const BINARY_SNIFF_BYTES = 8_000
 
 const DEFAULT_TIMEOUT_SECONDS = 120
@@ -38,6 +40,8 @@ const STAT_CONCURRENCY = 32
 const CONTEXT_LINES = 3
 
 const ALWAYS_EXCLUDED = ['.git', 'node_modules', 'dist']
+
+const BYTE_ORDER_MARK = '\uFEFF'
 
 export class FileSystemRefused extends Schema.TaggedError<FileSystemRefused>()(
   'FileSystemRefused',
@@ -93,6 +97,64 @@ const numbered = (lines: ReadonlyArray<string>, first: number): string =>
 
 const countOccurrences = (haystack: string, needle: string): number =>
   haystack.split(needle).length - 1
+
+type Newline = '\n' | '\r\n'
+
+const markOf = (text: string): '' | typeof BYTE_ORDER_MARK =>
+  text.startsWith(BYTE_ORDER_MARK) ? BYTE_ORDER_MARK : ''
+
+// Rewrite the line endings of `text` to `newline`. Passing '\n' normalises.
+const reframe = (text: string, newline: Newline): string =>
+  text.replaceAll('\r\n', '\n').replaceAll('\n', newline)
+
+// Both endings, the one the file opens with first. Nothing is rewritten to match:
+// the needle moves to the file, not the file to the needle, so a file of mixed
+// endings keeps every ending it had.
+const endings = (contents: string): readonly [Newline, Newline] => {
+  const first = contents.indexOf('\n')
+
+  return first > 0 && contents[first - 1] === '\r' ? ['\r\n', '\n'] : ['\n', '\r\n']
+}
+
+// One way the model's text could be framed to sit in this file.
+type Framing = {
+  readonly original: string
+  readonly replacement: string
+}
+
+// Where a framing lands. A needle of a single line reads the same either way, so a
+// file is only ever searched twice for a needle that spans lines — and then each
+// occurrence is replaced in the framing it was found in, which is what lets
+// replace_all reach every one of them in a file of mixed endings.
+type Sighting = {
+  readonly at: number
+  readonly framing: Framing
+  readonly occurrences: number
+}
+
+const sightings = (contents: string, sought: string, wanted: string): ReadonlyArray<Sighting> => {
+  const [opens, other] = endings(contents)
+
+  const opening: Framing = {
+    original: reframe(sought, opens),
+    replacement: reframe(wanted, opens),
+  }
+
+  const alternate: Framing = {
+    original: reframe(sought, other),
+    replacement: reframe(wanted, other),
+  }
+
+  const distinct = opening.original === alternate.original ? [opening] : [opening, alternate]
+
+  return distinct.flatMap((framing) => {
+    const at = contents.indexOf(framing.original)
+
+    return at === -1
+      ? []
+      : [{ at, framing, occurrences: countOccurrences(contents, framing.original) }]
+  })
+}
 
 type Clipped = {
   readonly clipped: boolean
@@ -152,6 +214,84 @@ const view = (lines: ReadonlyArray<string>, from: number, limit: number, budget:
   }
 }
 
+type Output = {
+  readonly collect: (text: string) => Effect.Effect<void>
+  // Renders what is left and flushes it to the spill file, so it is run once, on
+  // whichever way the command ended.
+  readonly seal: Effect.Effect<string>
+}
+
+// Keeps the end of a command's output, which is where the error usually is, and
+// spills the whole of it to a file the model can go and read when it did not fit.
+// The file outlives the call on purpose; the operating system clears it.
+const makeOutput = (fs: FileSystem.FileSystem): Effect.Effect<Output> =>
+  Effect.sync(() => {
+    let held = ''
+    let total = 0
+    let spill: string | undefined
+    let abandoned = false
+
+    const store = (text: string): Effect.Effect<void> =>
+      abandoned
+        ? Effect.void
+        : Effect.gen(function* () {
+            spill ??= yield* fs.makeTempFile({ prefix: 'vody-bash-', suffix: '.log' })
+
+            yield* fs.writeFileString(spill, text, { flag: 'a' })
+          }).pipe(
+            // A spill that failed part way would name a file that does not hold what it
+            // claims, so stop spilling and stop naming it. Only the file system saying
+            // no is handled: a defect or an interrupt belongs to whoever ran the command.
+            Effect.catch((error) =>
+              Effect.sync(() => {
+                abandoned = true
+              }).pipe(
+                Effect.tap(() => Effect.logDebug(`bash gave up spilling output: ${error.message}`)),
+              ),
+            ),
+          )
+
+    const collect = (text: string): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        total += text.length
+
+        held += text
+
+        if (held.length <= HELD_CHARACTERS) {
+          return
+        }
+
+        // Trim by character, not by chunk: a chunk can be larger than the whole tail,
+        // and dropping one whole would leave far less than the tail that was promised.
+        // Trimming to the budget only once it is doubled keeps the copying amortised.
+        const excess = held.length - MAX_OUTPUT_CHARACTERS
+
+        const dropped = held.slice(0, excess)
+
+        held = held.slice(excess)
+
+        yield* store(dropped)
+      })
+
+    const seal = Effect.gen(function* () {
+      const shown = held.slice(Math.max(0, held.length - MAX_OUTPUT_CHARACTERS))
+
+      const omitted = total - shown.length
+
+      if (omitted === 0) {
+        return shown === '' ? '(no output)' : shown
+      }
+
+      yield* store(held)
+
+      const where = abandoned || spill === undefined ? '' : `; full output at ${spill}`
+
+      return `... (${omitted} earlier characters omitted${where})\n${shown}`
+    })
+
+    return { collect, seal }
+  })
+
 const modifiedAt = (info: FileSystem.File.Info): number =>
   Option.match(info.mtime, { onNone: () => 0, onSome: (at) => at.getTime() })
 
@@ -166,12 +306,13 @@ const reachesInto = (prefix: string, entry: string): boolean =>
 
 const bash = Tool.make('bash', {
   description: [
-    'Run a shell command. The first line of the result is `exit <code>`; anything else is the',
-    'command output, stdout and stderr interleaved. Each call starts a fresh shell, so `cd` and',
-    'exported variables do not carry over — write `cd x && y` in one command instead. stdin is',
-    'closed, so a command that would prompt reads end-of-file instead of hanging. Output is',
-    `truncated once it gets long. The command is killed after timeout_seconds, ${DEFAULT_TIMEOUT_SECONDS} by`,
-    `default and at most ${MAX_TIMEOUT_SECONDS}.`,
+    'Run a shell command. The first line of the result is `exit <code>`. The rest is the command',
+    'output, stdout and stderr interleaved — except that output which ran long is cut from the',
+    'front to keep the end, and then the line after `exit <code>` says how much went and names a',
+    'file holding all of it, which you can read or grep. Each call starts a fresh shell, so `cd`',
+    'and exported variables do not carry over — write `cd x && y` in one command instead. stdin is',
+    'closed, so a command that would prompt reads end-of-file instead of hanging. The command is',
+    `killed after timeout_seconds, ${DEFAULT_TIMEOUT_SECONDS} by default and at most ${MAX_TIMEOUT_SECONDS}.`,
   ].join(' '),
   parameters: Schema.Struct({
     command: Schema.String,
@@ -318,35 +459,7 @@ export const toolkitLayer: Layer.Layer<
 
         const seconds = Math.min(requested ?? DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS)
 
-        const chunks: Array<string> = []
-
-        let collected = 0
-        let truncated = false
-
-        const collect = (text: string): void => {
-          const room = MAX_OUTPUT_CHARACTERS - collected
-
-          if (text.length > room) {
-            truncated = true
-          }
-
-          if (room <= 0) {
-            return
-          }
-
-          chunks.push(text.slice(0, room))
-          collected += Math.min(text.length, room)
-        }
-
-        const rendered = (): string => {
-          const joined = chunks.join('')
-
-          const body = joined === '' ? '(no output)' : joined
-
-          return truncated
-            ? `${body}\n... (output truncated at ${MAX_OUTPUT_CHARACTERS} characters)`
-            : body
-        }
+        const output = yield* makeOutput(fs)
 
         const run = Effect.scoped(
           Effect.gen(function* () {
@@ -359,9 +472,7 @@ export const toolkitLayer: Layer.Layer<
               }),
             )
 
-            yield* Stream.runForEach(Stream.decodeText(handle.all), (text) =>
-              Effect.sync(() => collect(text)),
-            )
+            yield* Stream.runForEach(Stream.decodeText(handle.all), output.collect)
 
             return yield* handle.exitCode
           }),
@@ -376,24 +487,26 @@ export const toolkitLayer: Layer.Layer<
           Effect.timeoutOrElse({
             duration: Duration.seconds(seconds),
             orElse: () =>
-              Effect.fail(
-                new CommandTimedOut({
-                  seconds,
-                  output: rendered(),
-                  reason:
-                    seconds === MAX_TIMEOUT_SECONDS
-                      ? `bash killed \`${command}\` after ${seconds}s, the longest it will wait — narrow the work, or start it in the background if it is not meant to finish`
-                      : `bash killed \`${command}\` after ${seconds}s — run it again with a longer timeout_seconds, or in the background if it is not meant to finish`,
-                }),
+              Effect.flatMap(output.seal, (shown) =>
+                Effect.fail(
+                  new CommandTimedOut({
+                    seconds,
+                    output: shown,
+                    reason:
+                      seconds === MAX_TIMEOUT_SECONDS
+                        ? `bash killed \`${command}\` after ${seconds}s, the longest it will wait — narrow the work, or start it in the background if it is not meant to finish`
+                        : `bash killed \`${command}\` after ${seconds}s — run it again with a longer timeout_seconds, or in the background if it is not meant to finish`,
+                  }),
+                ),
               ),
           }),
         )
 
-        const output = rendered()
+        const shown = yield* output.seal
 
-        yield* Console.log(output.slice(0, PREVIEW_CHARACTERS))
+        yield* Console.log(shown.slice(0, PREVIEW_CHARACTERS))
 
-        return `exit ${code}\n${output}`
+        return `exit ${code}\n${shown}`
       }),
 
       read_file: Effect.fn('read_file')(function* ({ limit, offset, path: target }) {
@@ -468,8 +581,8 @@ export const toolkitLayer: Layer.Layer<
       }),
 
       edit_file: Effect.fn('edit_file')(function* ({
-        new_text: replacement,
-        old_text: original,
+        new_text: wanted,
+        old_text: sought,
         path: target,
         replace_all: every,
       }) {
@@ -477,25 +590,35 @@ export const toolkitLayer: Layer.Layer<
 
         const resolved = path.resolve(root, target)
 
-        const contents = yield* fs.readFileString(resolved).pipe(Effect.mapError(refused))
+        const bytes = yield* fs.readFile(resolved).pipe(Effect.mapError(refused))
 
-        if (original === '') {
+        // `ignoreBOM` keeps a leading BOM as a character rather than dropping it, so
+        // the file can be written back with the mark it had.
+        const decoded = new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes)
+
+        const mark = markOf(decoded)
+
+        const contents = decoded.slice(mark.length)
+
+        if (sought === '') {
           return yield* new TextNotFound({
             path: target,
             reason: `edit_file was given an empty old_text — pass the text to replace, copied from ${target}`,
           })
         }
 
-        const at = contents.indexOf(original)
+        // The model types plain newlines whatever the file uses, so move its text to the
+        // file's convention rather than making it guess.
+        const found = sightings(contents, sought, wanted)
 
-        if (at === -1) {
+        const occurrences = found.reduce((total, sighting) => total + sighting.occurrences, 0)
+
+        if (occurrences === 0) {
           return yield* new TextNotFound({
             path: target,
             reason: `edit_file found no occurrence of old_text in ${target} — read the file and retry with text copied from it`,
           })
         }
-
-        const occurrences = countOccurrences(contents, original)
 
         if (occurrences > 1 && every !== true) {
           return yield* new TextNotUnique({
@@ -505,31 +628,36 @@ export const toolkitLayer: Layer.Layer<
           })
         }
 
-        const edited =
-          every === true
-            ? contents.split(original).join(replacement)
-            : contents.slice(0, at) + replacement + contents.slice(at + original.length)
+        // One sighting of one occurrence when the match was unique, every sighting when
+        // replace_all asked for them, and each replaced in the framing it was found in.
+        const edited = found.reduce(
+          (text, sighting) =>
+            text.split(sighting.framing.original).join(sighting.framing.replacement),
+          contents,
+        )
 
-        yield* writeAtomically(resolved, edited)
+        yield* writeAtomically(resolved, mark + edited)
 
         yield* remember(resolved)
 
-        const editedLines = toLines(edited)
+        const anchor = found.reduce((first, sighting) =>
+          sighting.at < first.at ? sighting : first,
+        )
 
-        const firstEdited = toLines(contents.slice(0, at)).length
+        const editedLines = toLines(reframe(edited, '\n'))
+
+        const firstEdited = toLines(contents.slice(0, anchor.at)).length
 
         const from = Math.max(0, firstEdited - 1 - CONTEXT_LINES)
 
         const to = Math.min(
           editedLines.length,
-          firstEdited + toLines(replacement).length + CONTEXT_LINES,
+          firstEdited + toLines(anchor.framing.replacement).length + CONTEXT_LINES,
         )
 
         const snippet = numbered(editedLines.slice(from, to), from + 1)
 
-        const count = every === true ? occurrences : 1
-
-        return `Edited ${target} (${count} ${count === 1 ? 'replacement' : 'replacements'})\n${snippet}`
+        return `Edited ${target} (${occurrences} ${occurrences === 1 ? 'replacement' : 'replacements'})\n${snippet}`
       }),
 
       glob: Effect.fn('glob')(function* ({ pattern }) {

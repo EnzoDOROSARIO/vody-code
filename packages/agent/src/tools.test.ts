@@ -89,6 +89,22 @@ type Outcome = Tool.Result<Tools[keyof Tools]>
 
 const text = (result: Outcome): string => (Predicate.isString(result) ? result : '')
 
+const utf8 = (contents: string): Array<number> => [...new TextEncoder().encode(contents)]
+
+const bytesOf = async (target: string): Promise<Array<number>> => [
+  ...new Uint8Array(await Bun.file(target).arrayBuffer()),
+]
+
+const spillOf = (result: Outcome): string => {
+  const named = /full output at (?<at>\S+?)\)/u.exec(text(result))?.groups?.['at']
+
+  if (named === undefined) {
+    throw new Error(`no spill file named in: ${text(result).slice(0, 120)}`)
+  }
+
+  return named
+}
+
 test('read_file numbers the lines it returns', async () => {
   const root = await workspace()
 
@@ -462,6 +478,109 @@ test('edit_file rejects an empty old_text instead of prepending', async () => {
   expect(await Bun.file(`${root}/edit.txt`).text()).toBe('one two')
 })
 
+test('edit_file matches old_text written with newlines against a file using CRLF', async () => {
+  const root = await workspace()
+
+  await Bun.write(`${root}/crlf.txt`, 'one\r\ntwo\r\nthree\r\n')
+
+  const outcome = await call(root, (tools) =>
+    tools.handle('edit_file', {
+      path: 'crlf.txt',
+      old_text: 'one\ntwo\n',
+      new_text: 'one\nTWO\n',
+    }),
+  )
+
+  expect(outcome.isFailure).toBe(false)
+  expect(await Bun.file(`${root}/crlf.txt`).text()).toBe('one\r\nTWO\r\nthree\r\n')
+})
+
+test('edit_file shows the edited lines without the carriage returns around them', async () => {
+  const root = await workspace()
+
+  await Bun.write(`${root}/crlf.txt`, 'one\r\ntwo\r\nthree\r\n')
+
+  const outcome = await call(root, (tools) =>
+    tools.handle('edit_file', { path: 'crlf.txt', old_text: 'two', new_text: 'TWO' }),
+  )
+
+  expect(outcome.result).toBe(
+    'Edited crlf.txt (1 replacement)\n     1→one\n     2→TWO\n     3→three',
+  )
+})
+
+test('edit_file leaves a file of mixed line endings alone outside the part it changed', async () => {
+  const root = await workspace()
+
+  await Bun.write(`${root}/mixed.txt`, 'one\r\ntwo\nthree\r\n')
+
+  await call(root, (tools) =>
+    tools.handle('edit_file', { path: 'mixed.txt', old_text: 'three', new_text: 'THREE' }),
+  )
+
+  expect(await Bun.file(`${root}/mixed.txt`).text()).toBe('one\r\ntwo\nTHREE\r\n')
+})
+
+test('edit_file reaches every occurrence of mixed endings when replacing all', async () => {
+  const root = await workspace()
+
+  await Bun.write(`${root}/n.txt`, 'a\r\nX\r\nb\r\nc\nX\nd\n')
+
+  const outcome = await call(root, (tools) =>
+    tools.handle('edit_file', {
+      path: 'n.txt',
+      old_text: 'X\n',
+      new_text: 'Y\n',
+      replace_all: true,
+    }),
+  )
+
+  expect(text(outcome.result)).toStartWith('Edited n.txt (2 replacements)')
+  expect(await Bun.file(`${root}/n.txt`).text()).toBe('a\r\nY\r\nb\r\nc\nY\nd\n')
+})
+
+test('edit_file counts occurrences of either framing before calling a match unique', async () => {
+  const root = await workspace()
+
+  await Bun.write(`${root}/n.txt`, 'a\r\nX\r\nb\r\nc\nX\nd\n')
+
+  const outcome = await call(root, (tools) =>
+    tools.handle('edit_file', { path: 'n.txt', old_text: 'X\n', new_text: 'Y\n' }),
+  )
+
+  expect(outcome.isFailure).toBe(true)
+  expect(outcome.result).toBeInstanceOf(TextNotUnique)
+  expect(outcome.result).toMatchObject({ occurrences: 2 })
+  expect(await Bun.file(`${root}/n.txt`).text()).toBe('a\r\nX\r\nb\r\nc\nX\nd\n')
+})
+
+test('edit_file keeps the byte order mark a file opened with', async () => {
+  const root = await workspace()
+
+  await Bun.write(`${root}/bom.txt`, '\uFEFFone\ntwo\n')
+
+  const outcome = await call(root, (tools) =>
+    tools.handle('edit_file', { path: 'bom.txt', old_text: 'two', new_text: 'TWO' }),
+  )
+
+  expect(outcome.isFailure).toBe(false)
+  // `Bun.file().text()` drops a leading mark, so read the bytes to see it survived.
+  expect(await bytesOf(`${root}/bom.txt`)).toEqual([0xef, 0xbb, 0xbf, ...utf8('one\nTWO\n')])
+})
+
+test('edit_file does not match a byte order mark the model could not have seen', async () => {
+  const root = await workspace()
+
+  await Bun.write(`${root}/bom.txt`, '\uFEFFone\n')
+
+  const outcome = await call(root, (tools) =>
+    tools.handle('edit_file', { path: 'bom.txt', old_text: 'one', new_text: 'ONE' }),
+  )
+
+  expect(outcome.isFailure).toBe(false)
+  expect(await bytesOf(`${root}/bom.txt`)).toEqual([0xef, 0xbb, 0xbf, ...utf8('ONE\n')])
+})
+
 test('edit_file lets write_file overwrite afterwards, having read the file itself', async () => {
   const root = await workspace()
 
@@ -633,16 +752,53 @@ test('bash kills a command that outstays its timeout, keeping what it printed', 
   expect(outcome.result).toMatchObject({ output: 'starting\n', seconds: 1 })
 })
 
-test('bash truncates output that would otherwise flood the context', async () => {
+test('bash keeps the end of output that would otherwise flood the context', async () => {
   const root = await workspace()
 
   const outcome = await call(root, (tools) =>
-    tools.handle('bash', { command: `yes ${'x'.repeat(99)} | head -n 1000` }),
+    tools.handle('bash', { command: `seq 1 20000; echo done` }),
   )
 
   expect(outcome.isFailure).toBe(false)
-  expect(text(outcome.result)).toEndWith('... (output truncated at 30000 characters)')
-  expect(text(outcome.result).length).toBeLessThan(31_000)
+  expect(text(outcome.result)).toEndWith('done\n')
+  expect(text(outcome.result)).toContain('earlier characters omitted')
+  expect(text(outcome.result).length).toBeLessThan(31_200)
+})
+
+test('bash writes the whole of a truncated output to a file it names', async () => {
+  const root = await workspace()
+
+  const outcome = await call(root, (tools) =>
+    tools.handle('bash', { command: `seq 1 20000; echo done` }),
+  )
+
+  const whole = await Bun.file(spillOf(outcome.result)).text()
+
+  expect(whole).toStartWith('1\n2\n3\n')
+  expect(whole).toEndWith('20000\ndone\n')
+})
+
+test('bash keeps a whole tail even when one chunk is larger than the tail', async () => {
+  const root = await workspace()
+
+  // A single line far longer than the budget arrives in chunks bigger than the tail
+  // itself, so trimming a whole chunk at a time would leave almost nothing behind.
+  const outcome = await call(root, (tools) =>
+    tools.handle('bash', { command: `head -c 400000 /dev/zero | tr '\\0' 'x'; echo done` }),
+  )
+
+  expect(text(outcome.result)).toEndWith('done\n')
+  expect(text(outcome.result).length).toBeGreaterThan(30_000)
+
+  expect(Bun.file(spillOf(outcome.result)).size).toBe(400_000 + 'done\n'.length)
+})
+
+test('bash names no file when the output fit', async () => {
+  const root = await workspace()
+
+  const outcome = await call(root, (tools) => tools.handle('bash', { command: 'echo small' }))
+
+  expect(outcome.result).toBe('exit 0\nsmall\n')
 })
 
 test('bash reports a shell it could not start at all', async () => {
