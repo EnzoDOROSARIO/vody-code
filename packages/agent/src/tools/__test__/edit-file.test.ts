@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 import { Effect, Stream } from 'effect'
 
 import { call, removeWorkspaces, text, workspace } from './harness.ts'
-import { TextNotFound, TextNotUnique } from '../tools/index.ts'
+import { TextNotFound, TextNotUnique } from '../index.ts'
 
 afterEach(removeWorkspaces)
 

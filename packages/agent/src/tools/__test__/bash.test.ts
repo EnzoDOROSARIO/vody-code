@@ -4,7 +4,7 @@ import { Effect, FileSystem } from 'effect'
 import { call, onDisk, removeWorkspaces, text, workspace } from './harness.ts'
 
 import type { Outcome } from './harness.ts'
-import { CommandRefused, CommandTimedOut } from '../tools/index.ts'
+import { CommandRefused, CommandTimedOut } from '../index.ts'
 
 afterEach(removeWorkspaces)
 
