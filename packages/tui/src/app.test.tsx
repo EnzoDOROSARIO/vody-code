@@ -1,9 +1,10 @@
 import { expect, test } from 'bun:test'
+import { Effect } from 'effect'
 import { renderToString } from 'ink'
 
 import { App, Prompt, Transcript } from './app.tsx'
 
-const never: () => Promise<string> = () => new Promise(() => {})
+const never: () => Promise<string> = () => Effect.runPromise(Effect.never)
 
 test('the transcript renders each line above the prompt', () => {
   expect(renderToString(<Transcript lines={['> say hi', '$ echo hi', 'hi']} />)).toBe(

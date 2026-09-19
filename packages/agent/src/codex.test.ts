@@ -1,6 +1,16 @@
 import { BunServices } from '@effect/platform-bun'
 import { afterEach, expect, test } from 'bun:test'
-import { ConfigProvider, Effect, Encoding, Exit, Layer, Predicate, Redacted, Schema } from 'effect'
+import {
+  Clock,
+  ConfigProvider,
+  Effect,
+  Encoding,
+  Exit,
+  Layer,
+  Predicate,
+  Redacted,
+  Schema,
+} from 'effect'
 import { HttpClientRequest } from 'effect/unstable/http'
 
 import { credentials, withEncryptedReasoning } from './codex.ts'
@@ -18,15 +28,21 @@ const token = (exp: number): string =>
     '',
   ].join('.')
 
-const inOneHour = Math.floor(Date.now() / 1000) + 3600
+const now = Math.floor(Effect.runSync(Clock.currentTimeMillis) / 1000)
 
-const longExpired = Math.floor(Date.now() / 1000) - 3600
+const inOneHour = now + 3600
+
+const longExpired = now - 3600
 
 const homes: Array<string> = []
 
+let made = 0
+
 /** A throwaway CODEX_HOME, handed over as config rather than as global state. */
 const codexHome = async (authJson: string | undefined): Promise<string> => {
-  const home = `/tmp/vody-codex-${crypto.randomUUID()}`
+  made += 1
+
+  const home = `/tmp/vody-codex-${made}`
 
   homes.push(home)
 
@@ -107,13 +123,13 @@ const Body = Schema.Struct({
   model: Schema.optionalKey(Schema.String),
 })
 
-const decodeBody = Schema.decodeSync(Schema.fromJsonString(Body))
+const decodeBody = Schema.decodeEffect(Schema.fromJsonString(Body))
 
 const sent = (request: HttpClientRequest.HttpClientRequest): typeof Body.Type => {
   const body = request.body
 
   return Predicate.isTagged(body, 'Uint8Array')
-    ? decodeBody(body.text ?? new TextDecoder().decode(body.body))
+    ? Effect.runSync(decodeBody(body.text ?? new TextDecoder().decode(body.body)))
     : {}
 }
 

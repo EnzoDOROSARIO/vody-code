@@ -34,11 +34,9 @@ export const main: Effect.Effect<void, never, LanguageModel.LanguageModel | Tool
       const services = yield* Effect.context<LanguageModel.LanguageModel | Tool.Handler<'bash'>>()
 
       const ask: Ask = (question, write) =>
-        Effect.runPromise(
+        Effect.runPromiseWith(services)(
           answer(conversation, tools, question).pipe(
             Effect.provideService(Console.Console, writingTo(write)),
-            // oxlint-disable-next-line effecttsgo/strict-effect-provide -- captured above, not a fresh layer
-            Effect.provide(services),
           ),
         )
 

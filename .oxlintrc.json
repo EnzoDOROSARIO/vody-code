@@ -93,5 +93,15 @@
   "options": {
     "typeAware": true,
     "typeCheck": false
-  }
+  },
+  // `bun:test` takes an async callback, so a test that awaits a run cannot be
+  // an `Effect.gen`. The rule is right everywhere else.
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx"],
+      "rules": {
+        "effecttsgo/async-function": "off"
+      }
+    }
+  ]
 }
