@@ -1,4 +1,4 @@
-import { Console, Effect, Layer, Schema, Stream, Terminal } from 'effect'
+import { Console, Effect, Layer, Schema, Stream } from 'effect'
 
 import type { FileSystem } from 'effect'
 import { Chat, Prompt, Tool, Toolkit } from 'effect/unstable/ai'
@@ -97,26 +97,9 @@ export const answer = (
     }
   })
 
-export const main: Effect.Effect<
-  void,
-  never,
-  LanguageModel.LanguageModel | Terminal.Terminal | Tool.Handler<'bash'>
-> = Effect.gen(function* () {
-  const terminal = yield* Terminal.Terminal
-  const tools = yield* toolkit
-  const chat = yield* Chat.fromPrompt(Prompt.empty.pipe(Prompt.setSystem(systemPrompt)))
-
-  while (true) {
-    yield* Console.log('')
-
-    const question = yield* terminal.readLine
-    const reply = yield* answer(chat, tools, question)
-
-    yield* Console.log(reply)
-  }
-}).pipe(
-  Effect.catchTag('QuitError', () => Effect.void),
-  Effect.orDie,
+/** A fresh conversation, carrying the system prompt. */
+export const chat: Effect.Effect<Chat.Chat> = Chat.fromPrompt(
+  Prompt.empty.pipe(Prompt.setSystem(systemPrompt)),
 )
 
 export const layer: Layer.Layer<
