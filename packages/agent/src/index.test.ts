@@ -8,9 +8,9 @@ import type { BunServices } from '@effect/platform-bun'
 
 import { answer } from './index.ts'
 import { services } from './testing.ts'
-import { toolkit } from './tools.ts'
+import { toolkit } from './tools/index.ts'
 
-import type { Handlers } from './tools.ts'
+import type { Handlers } from './tools/index.ts'
 
 const scriptedParts = (turn: number): Array<Response.StreamPartEncoded> =>
   turn === 0

@@ -14,7 +14,7 @@ import {
   TextNotFound,
   TextNotUnique,
   toolkit,
-} from './tools.ts'
+} from './tools/index.ts'
 
 type Tools = (typeof toolkit)['tools']
 

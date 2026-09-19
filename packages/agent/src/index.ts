@@ -7,16 +7,16 @@ import { FetchHttpClient } from 'effect/unstable/http'
 import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import * as Codex from './codex.ts'
-import { toolkitLayer } from './tools.ts'
+import { toolkitLayer } from './tools/index.ts'
 import { Workspace } from './workspace.ts'
 
-import type { Handlers, toolkit } from './tools.ts'
+import type { Handlers, toolkit } from './tools/index.ts'
 
-export { toolkit } from './tools.ts'
+export { toolkit } from './tools/index.ts'
 
 export { Workspace } from './workspace.ts'
 
-export type { Handlers } from './tools.ts'
+export type { Handlers } from './tools/index.ts'
 
 const systemPrompt = (workspace: string): string =>
   `You are a coding agent at ${workspace}. Use your tools to solve tasks. Act, don't explain.`

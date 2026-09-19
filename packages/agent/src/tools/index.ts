@@ -11,11 +11,15 @@ import {
   Stream,
 } from 'effect'
 
-import type { Layer, PlatformError } from 'effect'
+import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
-import { Workspace } from './workspace.ts'
+import { FileSystemRefused, refused } from './errors.ts'
+import { countOccurrences, numbered, toLines } from './text.ts'
+import { Workspace } from '../workspace.ts'
+
+export { FileSystemRefused } from './errors.ts'
 
 const MAX_MATCHES = 200
 
@@ -42,11 +46,6 @@ const CONTEXT_LINES = 3
 const ALWAYS_EXCLUDED = ['.git', 'node_modules', 'dist']
 
 const BYTE_ORDER_MARK = '\uFEFF'
-
-export class FileSystemRefused extends Schema.TaggedError<FileSystemRefused>()(
-  'FileSystemRefused',
-  { reason: Schema.String },
-) {}
 
 export class TextNotFound extends Schema.TaggedError<TextNotFound>()('TextNotFound', {
   path: Schema.String,
@@ -79,24 +78,9 @@ export class CommandTimedOut extends Schema.TaggedError<CommandTimedOut>()('Comm
   reason: Schema.String,
 }) {}
 
-const refused = (error: PlatformError.PlatformError): FileSystemRefused =>
-  new FileSystemRefused({ reason: error.message })
-
 const Lines = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 
 const Seconds = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
-
-const toLines = (contents: string): ReadonlyArray<string> => {
-  const split = contents.split('\n')
-
-  return split.at(-1) === '' ? split.slice(0, -1) : split
-}
-
-const numbered = (lines: ReadonlyArray<string>, first: number): string =>
-  lines.map((line, index) => `${String(first + index).padStart(6, ' ')}→${line}`).join('\n')
-
-const countOccurrences = (haystack: string, needle: string): number =>
-  haystack.split(needle).length - 1
 
 type Newline = '\n' | '\r\n'
 
