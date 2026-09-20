@@ -1,0 +1,40 @@
+# The same gates as `bun run check`, plus the test suite, in the order the
+# pre-commit hook runs them: each step only runs if the one before it passed.
+#
+# `bun install` runs the `prepare` script, which applies the `@effect/tsgo`
+# patch to the TypeScript and Oxlint binaries in `node_modules`. Lint and
+# typecheck depend on that patch, so nothing here may skip the install.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Format
+        run: bun run format:check
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Test
+        run: bun test
