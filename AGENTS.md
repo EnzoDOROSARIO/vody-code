@@ -81,3 +81,13 @@ Tests live in a `__test__/` beside the code they cover, one per directory: `src/
 `.oxlintrc.json` relaxes `effecttsgo/async-function` for `*.test.ts` alone, so a helper in a `__test__/` is held to the same rules as the source.
 
 Ink views are tested with Ink's own `renderToString`, which renders to a string with no terminal and no timers. `ink-testing-library` is a separate, older package that pins React 18 — reach for `renderToString` instead.
+
+## Mutation testing
+
+`bun run mutation` is `stryker run`, configured in `stryker.config.mjs`. It breaks at a mutation score of 80: below that the run exits non-zero. The HTML report lands in `reports/mutation/mutation.html`, and both `reports/` and the `.stryker-tmp/` sandbox are gitignored.
+
+Bun's runner has no Stryker plugin, so every mutant pays for a full `bun test`; around 1070 mutants over the two packages takes roughly five minutes. That is cheap enough to run by hand, which is why CI still runs only the `check` gates and `bun test`. The sandbox needs a couple of deliberate settings to work at all — each is commented at the option it guards in `stryker.config.mjs`, and that is the copy to keep correct.
+
+Entry points are mutated like everything else: `tui/src/cli.ts` and most of `tui/src/index.tsx` mount the app and have no tests, so they are a standing drag on the total rather than a scoring exemption.
+
+A mutant no test can tell apart is marked where it lives, with `// Stryker disable <mutator>: <reason>` — one mutator rather than `all`, so the reason and what it excuses stay the same size, and a reason that says why the code cannot observe the change. Anything else is a test that is missing.

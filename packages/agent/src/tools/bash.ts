@@ -12,7 +12,9 @@ const HELD_CHARACTERS = MAX_OUTPUT_CHARACTERS * 2
 
 const DEFAULT_TIMEOUT_SECONDS = 120
 
-const MAX_TIMEOUT_SECONDS = 600
+// Exported for the tests, which name the ceiling rather than restating it, so the arm
+// of `timedOut` they are aiming at stays the one they hit.
+export const MAX_TIMEOUT_SECONDS = 600
 
 export class CommandRefused extends Schema.TaggedError<CommandRefused>()('CommandRefused', {
   reason: Schema.String,
@@ -25,6 +27,15 @@ export class CommandTimedOut extends Schema.TaggedError<CommandTimedOut>()('Comm
 }) {}
 
 const Seconds = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
+
+// What the model is told when its command is killed. A timeout the caller chose can be
+// raised on the next attempt and the ceiling cannot, so only one of the two is worth
+// suggesting a retry against. It is a function of its own because reaching the ceiling
+// arm through the handler would mean waiting the ceiling out.
+export const timedOut = (command: string, seconds: number): string =>
+  seconds === MAX_TIMEOUT_SECONDS
+    ? `bash killed \`${command}\` after ${seconds}s, the longest it will wait — narrow the work, or start it in the background if it is not meant to finish`
+    : `bash killed \`${command}\` after ${seconds}s — run it again with a longer timeout_seconds, or in the background if it is not meant to finish`
 
 type Output = {
   readonly collect: (text: string) => Effect.Effect<void>
@@ -175,10 +186,7 @@ export const layer: Layer.Layer<
                   new CommandTimedOut({
                     seconds,
                     output: shown,
-                    reason:
-                      seconds === MAX_TIMEOUT_SECONDS
-                        ? `bash killed \`${command}\` after ${seconds}s, the longest it will wait — narrow the work, or start it in the background if it is not meant to finish`
-                        : `bash killed \`${command}\` after ${seconds}s — run it again with a longer timeout_seconds, or in the background if it is not meant to finish`,
+                    reason: timedOut(command, seconds),
                   }),
                 ),
               ),

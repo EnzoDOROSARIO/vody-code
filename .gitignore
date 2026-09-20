@@ -11,3 +11,8 @@ coverage/
 
 # Written by the review workflow; the paths and contents it last reviewed.
 .claude/review-state
+
+# Stryker mutation testing
+reports/
+.stryker-tmp/
+stryker.log

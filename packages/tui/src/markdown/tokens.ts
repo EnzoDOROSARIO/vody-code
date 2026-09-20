@@ -9,6 +9,8 @@ import type { MarkedToken, Token, Tokens } from 'marked'
 // Strikethrough is off because the model writes `~` far more often to mean "about" —
 // `~100ms` — than it writes `~~` to strike something out, and the tokenizer reads the
 // first as the second across the rest of the line.
+// Stryker disable next-line ObjectLiteral: gfm is marked's own default, so emptying
+// these options changes nothing — the option is here to say which dialect is meant.
 export const reader = new Marked({ gfm: true })
 
 reader.use({ tokenizer: { del: () => undefined } })
@@ -37,6 +39,9 @@ export type Drawable = Exclude<MarkedToken, Tokens.Del | Tokens.ListItem>
 // matters because the two failures are silent in opposite ways — a name missing here
 // quietly renders the token as raw markdown, and a name here with no arm throws
 // mid-render.
+// Stryker disable BooleanLiteral: `parsed` asks `Object.hasOwn` for the key, so the
+// values are never read and no test can tell one from another. The record exists for
+// its type — emptying it is a different mutant, and one the markdown tests kill.
 const DRAWN: Record<Drawable['type'], true> = {
   blockquote: true,
   br: true,
@@ -58,6 +63,7 @@ const DRAWN: Record<Drawable['type'], true> = {
   table: true,
   text: true,
 }
+// Stryker restore BooleanLiteral
 
 export const parsed = (token: Token): token is Drawable => Object.hasOwn(DRAWN, token.type)
 

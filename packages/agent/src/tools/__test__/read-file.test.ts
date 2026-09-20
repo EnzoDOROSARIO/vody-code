@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from 'bun:test'
+import { Effect, Stream } from 'effect'
 
 import { call, removeWorkspaces, text, workspace } from './harness.ts'
-import { FileIsBinary, FileSystemRefused } from '#tools/index.ts'
+import { FileIsBinary, FileNotRead, FileSystemRefused } from '#tools/index.ts'
 
 afterEach(removeWorkspaces)
 
@@ -106,6 +107,9 @@ test('read_file refuses a binary file instead of decoding it to nonsense', async
 
   expect(outcome.isFailure).toBe(true)
   expect(outcome.result).toBeInstanceOf(FileIsBinary)
+  expect(outcome.result).toMatchObject({
+    reason: expect.stringContaining('the bytes include NUL, so it is not text'),
+  })
 })
 
 test('read_file clips a line too long to be bounded by a line limit', async () => {
@@ -148,4 +152,77 @@ test('read_file reports a file that is not there', async () => {
 
   expect(outcome.isFailure).toBe(true)
   expect(outcome.result).toBeInstanceOf(FileSystemRefused)
+})
+
+// One line under the budget is the whole of the file; the budget is spent across the
+// lines kept, counting the newline that ends each one, and what does not fit is cut
+// at the line that ran out rather than mid-way through it.
+test('read_file spends its character budget across the lines, newlines included', async () => {
+  const root = await workspace()
+
+  const line = 'x'.repeat(99)
+
+  await Bun.write(`${root}/wide.txt`, `${line}\n`.repeat(1010))
+
+  const outcome = await call(root, (tools) => tools.handle('read_file', { path: 'wide.txt' }))
+
+  const shown = text(outcome.result)
+
+  expect(shown).toStartWith(`     1→${line}`)
+  expect(shown).toEndWith(
+    `\n  1000→${line}\n... (truncated at 100000 characters; 10 more lines; continue with offset 1001)`,
+  )
+})
+
+// Both cuts fire at once: the line limit picks 1500 lines and the budget pays for 1000
+// of them. What the model is told to continue from has to be the first line it was not
+// shown, not the first line the limit left out — the 500 in between are on the near side
+// of the limit and were still never sent.
+test('read_file continues from the first line it did not show, not the first the limit dropped', async () => {
+  const root = await workspace()
+
+  const line = 'x'.repeat(99)
+
+  await Bun.write(`${root}/wide.txt`, `${line}\n`.repeat(2100))
+
+  const outcome = await call(root, (tools) =>
+    tools.handle('read_file', { path: 'wide.txt', limit: 1500 }),
+  )
+
+  const shown = text(outcome.result)
+
+  expect(shown).toContain(`\n  1000→${line}`)
+  expect(shown).not.toContain('1001→')
+  expect(shown).toEndWith(
+    '... (truncated at 100000 characters; 1100 more lines; continue with offset 1001)',
+  )
+})
+
+test('read_file says an offset one past the last line is past the end', async () => {
+  const root = await workspace()
+
+  await Bun.write(`${root}/three.txt`, 'a\nb\nc\n')
+
+  const outcome = await call(root, (tools) =>
+    tools.handle('read_file', { path: 'three.txt', offset: 4 }),
+  )
+
+  expect(outcome.result).toBe('(offset 4 is past the end of three.txt, which has 3 lines)')
+})
+
+test('write_file will not overwrite on the strength of a read the budget cut short', async () => {
+  const root = await workspace()
+
+  await Bun.write(`${root}/wide.txt`, `${'x'.repeat(99)}\n`.repeat(1010))
+
+  const outcome = await call(root, (tools) =>
+    Effect.gen(function* () {
+      yield* Stream.runDrain(yield* tools.handle('read_file', { path: 'wide.txt' }))
+
+      return yield* tools.handle('write_file', { path: 'wide.txt', content: 'clobbered' })
+    }),
+  )
+
+  expect(outcome.isFailure).toBe(true)
+  expect(outcome.result).toBeInstanceOf(FileNotRead)
 })

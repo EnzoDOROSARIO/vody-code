@@ -5,9 +5,10 @@ import type { Response } from 'effect/unstable/ai'
 
 import type { BunServices } from '@effect/platform-bun'
 
-import { answer } from '#index.ts'
+import { answer, chat } from '#index.ts'
 import { services } from './testing.ts'
 import { toolkit } from '#tools/index.ts'
+import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
 import type { Handlers } from '#tools/index.ts'
@@ -144,4 +145,28 @@ test('the loop stops on a turn with no tool call', async () => {
   // follows the last fragment of the second answer.
   expect(activities.filter((activity) => activity.type === 'tool-call')).toHaveLength(1)
   expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'hi', type: 'reply' })
+})
+
+// The standing instructions the model works under, and the one line of them that is
+// filled in per run. They are joined with newlines rather than written as one template
+// literal because a literal spanning these lines carried its own indentation into the
+// prompt; pinning the text keeps both that and any change to the instructions visible.
+test('the model is given these standing instructions, and told where it is working', async () => {
+  const history = await Effect.runPromise(
+    Effect.flatMap(chat, (conversation) => Ref.get(conversation.history)).pipe(
+      Effect.provideService(Workspace, '/tmp/somewhere'),
+    ),
+  )
+
+  const [instructions] = history.content
+
+  expect(instructions).toMatchObject({
+    role: 'system',
+    content: [
+      'You are an expert coding assistant operating inside Vody Code, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.',
+      'Be concise in your responses.',
+      'Show file paths clearly when working with files',
+      'You are operating in /tmp/somewhere',
+    ].join('\n'),
+  })
 })

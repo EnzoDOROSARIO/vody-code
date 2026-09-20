@@ -5,6 +5,7 @@ import { call, onDisk, removeWorkspaces, text, workspace } from './harness.ts'
 
 import type { Outcome } from './harness.ts'
 import { CommandRefused, CommandTimedOut } from '#tools/index.ts'
+import { MAX_TIMEOUT_SECONDS, timedOut } from '#tools/bash.ts'
 
 afterEach(removeWorkspaces)
 
@@ -76,6 +77,21 @@ test('bash kills a command that outstays its timeout, keeping what it printed', 
   expect(outcome.isFailure).toBe(true)
   expect(outcome.result).toBeInstanceOf(CommandTimedOut)
   expect(outcome.result).toMatchObject({ output: 'starting\n', seconds: 1 })
+  // A timeout the caller chose can be raised; the ceiling cannot, and the two say so
+  // differently.
+  expect(outcome.result).toMatchObject({
+    reason: expect.stringContaining('run it again with a longer timeout_seconds'),
+  })
+})
+
+// The ceiling arm cannot be reached through the tool — getting there means asking for
+// the ceiling and then waiting it out — so the sentence is checked where it is written.
+test('a command killed at the ceiling is not told to ask for longer', () => {
+  const ceiling = timedOut('sleep 999', MAX_TIMEOUT_SECONDS)
+
+  expect(ceiling).toContain('the longest it will wait')
+  expect(ceiling).not.toContain('timeout_seconds')
+  expect(timedOut('sleep 999', 1)).toContain('run it again with a longer timeout_seconds')
 })
 
 test('bash keeps the end of output that would otherwise flood the context', async () => {
@@ -142,4 +158,7 @@ test('bash reports a shell it could not start at all', async () => {
 
   expect(outcome.isFailure).toBe(true)
   expect(outcome.result).toBeInstanceOf(CommandRefused)
+  expect(outcome.result).toMatchObject({
+    reason: expect.stringContaining('bash could not run `echo hello`'),
+  })
 })

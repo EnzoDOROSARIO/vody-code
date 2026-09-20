@@ -51,6 +51,11 @@ test('edit_file refuses an ambiguous match rather than picking the first', async
 
   expect(outcome.isFailure).toBe(true)
   expect(outcome.result).toBeInstanceOf(TextNotUnique)
+  // What the model is told to do next: the count it has to disambiguate against, and
+  // the two ways out of it.
+  expect(outcome.result).toMatchObject({
+    reason: expect.stringContaining('found 2 occurrences of old_text in edit.txt'),
+  })
   expect(await Bun.file(`${root}/edit.txt`).text()).toBe('one two one')
 })
 
@@ -83,6 +88,9 @@ test('edit_file leaves the file untouched when the text is not there', async () 
 
   expect(outcome.isFailure).toBe(true)
   expect(outcome.result).toBeInstanceOf(TextNotFound)
+  expect(outcome.result).toMatchObject({
+    reason: expect.stringContaining('found no occurrence of old_text in edit.txt'),
+  })
   expect(await Bun.file(`${root}/edit.txt`).text()).toBe('one two')
 })
 
@@ -97,6 +105,9 @@ test('edit_file rejects an empty old_text instead of prepending', async () => {
 
   expect(outcome.isFailure).toBe(true)
   expect(outcome.result).toBeInstanceOf(TextNotFound)
+  expect(outcome.result).toMatchObject({
+    reason: expect.stringContaining('was given an empty old_text'),
+  })
   expect(await Bun.file(`${root}/edit.txt`).text()).toBe('one two')
 })
 

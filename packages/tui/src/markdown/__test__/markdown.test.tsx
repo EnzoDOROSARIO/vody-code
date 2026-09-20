@@ -64,6 +64,17 @@ test('a tilde is left alone, and so is a pair of them', () => {
   expect(painted).toContain('~~kept~~')
 })
 
+// With that tokenizer on, the whole of `~~**bold**~~` is one token this module does not
+// draw, and a token it does not draw falls through to its raw text — tildes, asterisks
+// and all. Off, the tildes are prose and the emphasis between them is still emphasis.
+test('a pair of tildes does not swallow the markup between them', () => {
+  const painted = colourful(<Markdown>{'**loud** and ~~**bold**~~'}</Markdown>)
+
+  expect(painted).toContain(`${BOLD}bold`)
+  expect(painted).toContain('~~')
+  expect(painted).not.toContain('**bold**')
+})
+
 test('a heading is set apart by its depth', () => {
   const first = colourful(<Markdown>{'# Title'}</Markdown>)
   const second = colourful(<Markdown>{'## Section'}</Markdown>)

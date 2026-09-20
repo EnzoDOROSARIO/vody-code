@@ -131,7 +131,9 @@ export const withEncryptedReasoning = (
       })
 }
 
-const authenticate =
+// Exported for the tests, which reach the headers it sets without standing up the
+// whole OpenAI client around it.
+export const authenticate =
   (auth: Effect.Effect<CodexCredentials, CodexAuthenticationRequired>) =>
   (client: HttpClient.HttpClient): HttpClient.HttpClient =>
     client.pipe(

@@ -60,15 +60,19 @@ type View = {
 const view = (lines: ReadonlyArray<string>, from: number, limit: number, budget: number): View => {
   const selected = lines.slice(from, from + limit)
 
-  const remaining = lines.length - from - selected.length
-
   const shown = clip(selected, budget)
+
+  // Counted against what was actually shown, not what the line limit selected: when the
+  // budget cuts the selection short as well, the offset to continue from has to name the
+  // first line the model has not seen, or the lines the budget dropped are skipped over
+  // in silence.
+  const remaining = lines.length - from - shown.lines.length
 
   const notes = [
     shown.clipped ? `truncated at ${budget} characters` : undefined,
     remaining === 0
       ? undefined
-      : `${remaining} more lines; continue with offset ${from + selected.length + 1}`,
+      : `${remaining} more lines; continue with offset ${from + shown.lines.length + 1}`,
   ].filter((note) => note !== undefined)
 
   const body = numbered(shown.lines, from + 1)
