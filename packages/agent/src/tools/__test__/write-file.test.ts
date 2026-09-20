@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from 'bun:test'
 import { Effect, Stream } from 'effect'
 
-import { call, removeWorkspaces, touch, workspace } from './harness.ts'
+import { call, touch, workspace } from './harness.ts'
+import { removeWorkspaces } from '#__test__/testing.ts'
 import { FileNotRead, FileSystemRefused } from '#tools/index.ts'
 
 afterEach(removeWorkspaces)

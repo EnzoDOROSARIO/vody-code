@@ -1,15 +1,13 @@
 import { Effect, Layer, Ref, Schema, Stream } from 'effect'
 
 import type { FileSystem, Path } from 'effect'
-import { Chat, Prompt } from 'effect/unstable/ai'
-import type { AiError, LanguageModel, Response, Toolkit } from 'effect/unstable/ai'
+import type { AiError, Chat, LanguageModel, Prompt, Response, Toolkit } from 'effect/unstable/ai'
 import { FetchHttpClient } from 'effect/unstable/http'
 import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { ToolCall } from './activity.ts'
 import * as Codex from './codex.ts'
 import { toolkitLayer } from './tools/index.ts'
-import { Workspace } from './workspace.ts'
 
 import type { Activity, Tools } from './activity.ts'
 import type { Handlers } from './tools/index.ts'
@@ -30,22 +28,15 @@ export {
 
 export { toolkit } from './tools/index.ts'
 
+// The prompt the conversation starts from, and what the workspace has to say for
+// itself, are one concern; `prompt.ts` holds it.
+export { chat, InstructionsUnreadable } from './prompt.ts'
+
 export { Workspace } from './workspace.ts'
 
 export type { Activity, Reply, ToolFailure, ToolResult, Tools } from './activity.ts'
 
 export type { Handlers } from './tools/index.ts'
-
-// One array entry per line of the prompt. A template literal spanning these four lines
-// would carry the source indentation into the string — which it did, leaving the model
-// three of the lines indented by three or four spaces against a first line at column 0.
-const systemPrompt = (workspace: string): string =>
-  [
-    'You are an expert coding assistant operating inside Vody Code, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.',
-    'Be concise in your responses.',
-    'Show file paths clearly when working with files',
-    `You are operating in ${workspace}`,
-  ].join('\n')
 
 // The arguments are checked against the same schema the tool itself decodes with, so
 // a call that fails here is one the tool is about to refuse. Staying quiet costs
@@ -103,10 +94,6 @@ export const answer = (
       return Stream.concat(turn, rest)
     }),
   )
-
-export const chat: Effect.Effect<Chat.Chat> = Effect.flatMap(Workspace, (directory) =>
-  Chat.fromPrompt(Prompt.empty.pipe(Prompt.setSystem(systemPrompt(directory)))),
-)
 
 export const layer: Layer.Layer<
   LanguageModel.LanguageModel | Handlers,

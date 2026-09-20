@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
 
-import { call, removeWorkspaces, text, touch, workspace } from './harness.ts'
+import { call, text, touch, workspace } from './harness.ts'
+import { removeWorkspaces } from '#__test__/testing.ts'
 
 afterEach(removeWorkspaces)
 
