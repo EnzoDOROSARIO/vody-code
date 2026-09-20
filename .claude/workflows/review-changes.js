@@ -8,7 +8,7 @@ export const meta = {
     { title: 'Verify', detail: 'adversarial pass that kills findings it cannot confirm' },
     { title: 'Fix', detail: 'apply the survivors serially, keep the gate green' },
     { title: 'CRAP', detail: 'coverage + crap4ts, every score to 10 or below' },
-    { title: 'Record', detail: 'record that this tree was reviewed, so the hook lets it through' },
+    { title: 'Record', detail: 'record the paths reviewed, so the hook lets a commit through' },
   ],
 }
 
@@ -236,7 +236,7 @@ if (!crap || !crap.green) {
 phase('Record')
 
 const recorded = await agent(
-  `Record that this tree has been reviewed, so the pre-commit hook lets a commit through.\n${CONTEXT}\n## Do\n1. Verify independently first — do not trust the earlier phases:\n     cd ${REPO} && ${BUN} bun run check\n     cd ${REPO} && ${BUN} bun test\n   If either fails, STOP, write nothing, and report the failure.\n2. Confirm nothing stray is left in the tree: \`git status --short\` should show only the change under review — no scratch files.\n3. Write the fingerprint of the tree as it now stands:\n     cd ${REPO} && .claude/hooks/review-fingerprint.sh > .claude/review-state\n   Write it LAST, after every edit. It is a hash of the current uncommitted content, so any later edit retires it and the hook asks for a fresh review — which is the intent.\n4. Print the recorded value and \`git status --short\`.\n\nDo NOT commit. Committing is the user's to do, and this workflow is the gate that commit waits behind.\n\nReturn plain text: the recorded fingerprint, the final test count, and what remains uncommitted.`,
+  `Record that this tree has been reviewed, so the pre-commit hook lets a commit through.\n${CONTEXT}\n## Do\n1. Verify independently first — do not trust the earlier phases:\n     cd ${REPO} && ${BUN} bun run check\n     cd ${REPO} && ${BUN} bun test\n   If either fails, STOP, write nothing, and report the failure.\n2. Confirm nothing stray is left in the tree: \`git status --short\` should show only the change under review — no scratch files.\n3. Record what you read — one line per path, as \`<sha256>\\t<path>\`:\n     cd ${REPO} && .claude/hooks/review-manifest.sh > .claude/review-state\n   Write it LAST, after every edit. The hook asks whether every path still uncommitted appears there with that same content, so editing one afterwards puts it back on the list and asks for a fresh review — which is the intent. Committing only some of them is fine; the rest stay covered.\n4. Print the recorded manifest and \`git status --short\`.\n\nDo NOT commit. Committing is the user's to do, and this workflow is the gate that commit waits behind.\n\nReturn plain text: the recorded manifest, the final test count, and what remains uncommitted.`,
   { label: 'record', phase: 'Record' },
 )
 

@@ -54,28 +54,47 @@ EOF
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 0
 
-current=$("$here/review-fingerprint.sh" 2>/dev/null) || exit 0
-recorded=$(cat "$root/.claude/review-state" 2>/dev/null || printf '')
+# Every path that differs from HEAD right now, against every path the last review
+# covered. `comm -23` keeps the lines on the left that are absent on the right: a path
+# nobody has reviewed, or one whose content has moved since they did.
+#
+# Only the left side is questioned, which is what lets one review cover several commits.
+# Committing part of the tree drops those paths out of `git status` and so out of the
+# left side; the lines it leaves behind still match the record, and the next commit goes
+# through. A record holding paths that are no longer here is not stale, it is spent.
+#
+# A clean tree therefore has nothing to answer for, and an amend or an empty commit goes
+# through on its own merits: there is no unreviewed work in a commit that carries none.
+unreviewed=$(
+  LC_ALL=C comm -23 \
+    <("$here/review-manifest.sh" 2>/dev/null | LC_ALL=C sort) \
+    <(LC_ALL=C sort "$root/.claude/review-state" 2>/dev/null)
+)
 
-if [ -n "$current" ] && [ "$current" = "$recorded" ]; then
-  exit 0
-fi
+[ -n "$unreviewed" ] || exit 0
 
-reason='This tree has not been reviewed, so the commit is on hold.
+listed=$(printf '%s\n' "$unreviewed" | cut -f2- | sed 's/^/    /')
+
+reason="Work in this tree has not been reviewed, so the commit is on hold.
+
+Not covered by the last review:
+
+${listed}
 
 Run the review first:
 
-    Workflow({ name: "review-changes" })
+    Workflow({ name: \"review-changes\" })
 
 It reads the uncommitted files through four lenses, attacks each finding before
 trusting it, applies the ones that survive, drives every CRAP score to 10 or
-below, and records that this exact tree was reviewed. Then commit again.
+below, and records what it read. Then commit again.
 
 The findings do not have to come back empty — the gate asks only that a review
-has run against what is about to be committed. Editing anything afterwards
-retires the record, since the review no longer describes the tree.
+has run against what is about to be committed. A review covers the files it saw,
+so committing them in several goes is fine; editing one afterwards puts it back
+on the list above.
 
-To commit without one, prefix the command with SKIP_REVIEW=1.'
+To commit without a review, lead the command with SKIP_REVIEW=1."
 
 jq -n --arg reason "$reason" '{
   hookSpecificOutput: {
