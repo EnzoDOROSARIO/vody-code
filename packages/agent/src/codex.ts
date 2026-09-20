@@ -15,6 +15,11 @@ import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/
 
 const MODEL = 'gpt-5.6-sol'
 
+// How hard the model thinks before it answers. Left unset, the effort is whatever the
+// model defaults to, which OpenAI varies from one release to the next; naming it here
+// means a new default cannot quietly change how the agent works.
+const REASONING_EFFORT = 'high'
+
 const API_URL = 'https://chatgpt.com/backend-api/codex'
 
 export class CodexAuthenticationRequired extends Schema.TaggedError<CodexAuthenticationRequired>()(
@@ -162,7 +167,10 @@ export const layer: Layer.Layer<
 
     yield* auth
 
-    return OpenAiLanguageModel.layer({ model: MODEL, config: { store: false } }).pipe(
+    return OpenAiLanguageModel.layer({
+      model: MODEL,
+      config: { reasoning: { effort: REASONING_EFFORT }, store: false },
+    }).pipe(
       Layer.provide(OpenAiClient.layer({ apiUrl: API_URL, transformClient: authenticate(auth) })),
     )
   }),
