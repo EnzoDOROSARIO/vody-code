@@ -1,6 +1,6 @@
 import { Predicate } from 'effect'
 import { Box, Text, useInput, useStdin } from 'ink'
-import { useState } from 'react'
+import { useReducer, useState } from 'react'
 
 import { casesHandled } from './defects.ts'
 import { Markdown } from './markdown/index.tsx'
@@ -173,11 +173,9 @@ export const Prompt = ({
 
 export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   const { isRawModeSupported } = useStdin()
-  const [lines, setLines] = useState<ReadonlyArray<Line>>([])
+  const [lines, write] = useReducer(written, [])
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
-
-  const write = (entry: Line): void => setLines((all) => written(all, entry))
 
   const show = (activity: Activity): void => {
     const entry = transcribe(activity)
