@@ -36,11 +36,16 @@ export type { Activity, Reply, ToolFailure, ToolResult, Tools } from './activity
 
 export type { Handlers } from './tools/index.ts'
 
+// One array entry per line of the prompt. A template literal spanning these four lines
+// would carry the source indentation into the string — which it did, leaving the model
+// three of the lines indented by three or four spaces against a first line at column 0.
 const systemPrompt = (workspace: string): string =>
-  `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
-    Be concise in your responses.
-    Show file paths clearly when working with files
-   You are operating in ${workspace}`
+  [
+    'You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.',
+    'Be concise in your responses.',
+    'Show file paths clearly when working with files',
+    `You are operating in ${workspace}`,
+  ].join('\n')
 
 // The arguments are checked against the same schema the tool itself decodes with, so
 // a call that fails here is one the tool is about to refuse. Staying quiet costs
