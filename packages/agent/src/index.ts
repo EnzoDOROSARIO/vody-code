@@ -41,7 +41,7 @@ export type { Handlers } from './tools/index.ts'
 // three of the lines indented by three or four spaces against a first line at column 0.
 const systemPrompt = (workspace: string): string =>
   [
-    'You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.',
+    'You are an expert coding assistant operating inside Vody Code, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.',
     'Be concise in your responses.',
     'Show file paths clearly when working with files',
     `You are operating in ${workspace}`,
