@@ -121,6 +121,33 @@ test('a nested list starts on its own line, indented under the item above', () =
   )
 })
 
+// An item whose whole content is a nested list still has to draw its marker. That row is
+// the one saying a list started here, so it is drawn however empty it is — leave it out
+// and the nested list hangs under nothing, a step below a step that was never written.
+//
+// The two spellings reach it by different routes. An item broken across lines keeps a
+// `space` token where its words would be, so something precedes the nested list; one
+// written on a single line holds the nested list and nothing else, and is the only input
+// that asks the renderer to invent the row.
+test('an item that opens straight onto a nested list still draws its marker', () => {
+  expect(renderToString(<Markdown>{'- - a\n  - b'}</Markdown>)).toBe('•\n  • a\n  • b')
+  expect(renderToString(<Markdown>{'-\n  - deep'}</Markdown>)).toBe('•\n  • deep')
+})
+
+// An item with nothing in it at all reaches the same rule by the shortest route: marked
+// hands the item over holding no tokens whatsoever, and the marker is still the whole of
+// what a reader has to tell them a list started.
+test('an item holding nothing is still a row of its own', () => {
+  expect(renderToString(<Markdown>{'- '}</Markdown>)).toBe('•')
+})
+
+// The blank line marked splits a loose item on outlives the nested list it followed: the
+// item ends on a `space` token and nothing else, which stacks to nothing. That is a gap
+// in the source, not a row, so drawing it would open a blank line between two siblings.
+test('a blank line closing an item after a nested list is not a row', () => {
+  expect(renderToString(<Markdown>{'- a\n  - b\n\n\n- c'}</Markdown>)).toBe('• a\n  • b\n• c')
+})
+
 test('an ordered list counts from where it says, and leaves its items in one column', () => {
   expect(renderToString(<Markdown>{'9. nine\n10. ten'}</Markdown>)).toBe('9.  nine\n10. ten')
 })
