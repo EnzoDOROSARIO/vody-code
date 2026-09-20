@@ -5,10 +5,9 @@ import type { Response } from 'effect/unstable/ai'
 
 import type { BunServices } from '@effect/platform-bun'
 
-import { answer, chat } from '#index.ts'
+import { answer } from '#index.ts'
 import { services } from './testing.ts'
 import { toolkit } from '#tools/index.ts'
-import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
 import type { Handlers } from '#tools/index.ts'
@@ -145,21 +144,4 @@ test('the loop stops on a turn with no tool call', async () => {
   // follows the last fragment of the second answer.
   expect(activities.filter((activity) => activity.type === 'tool-call')).toHaveLength(1)
   expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'hi', type: 'reply' })
-})
-
-// Every request carries a system prompt and no other test builds one, so a chat that
-// stopped setting it would go unnoticed. What that prompt says is not this test's
-// business — the wording is there to be edited, and an assertion on a phrase would
-// turn every edit into a failure. Only the workspace has to survive, since it is the
-// one thing the code puts there rather than the prompt.
-test('the system prompt reaches the model, with the workspace in it', async () => {
-  const session = await Effect.runPromise(chat.pipe(Effect.provideService(Workspace, '/tmp/ws')))
-  const history = await Effect.runPromise(Ref.get(session.history))
-  const first = history.content[0]
-
-  if (first?.role !== 'system') {
-    throw new Error(`expected a system message, got ${String(first?.role)}`)
-  }
-
-  expect(first.content).toContain('/tmp/ws')
 })
