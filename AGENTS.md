@@ -84,9 +84,11 @@ Ink views are tested with Ink's own `renderToString`, which renders to a string 
 
 ## Mutation testing
 
-`bun run mutation` is `stryker run`, configured in `stryker.config.mjs`. It breaks at a mutation score of 80: below that the run exits non-zero. The HTML report lands in `reports/mutation/mutation.html`, and both `reports/` and the `.stryker-tmp/` sandbox are gitignored.
+`bun run mutation` is `stryker run`, configured in `stryker.config.mjs`. It breaks at a mutation score of 80: below that the run exits non-zero. The reports land in `reports/mutation/` — `mutation.html` to read, `mutation.json` to pick survivors out of as data — and both `reports/` and the `.stryker-tmp/` sandbox are gitignored.
 
-Bun's runner has no Stryker plugin, so every mutant pays for a full `bun test`; around 1070 mutants over the two packages takes roughly five minutes. That is cheap enough to run by hand, which is why CI still runs only the `check` gates and `bun test`. The sandbox needs a couple of deliberate settings to work at all — each is commented at the option it guards in `stryker.config.mjs`, and that is the copy to keep correct.
+Bun's runner has no Stryker plugin, so every mutant pays for a full `bun test`; around 1070 mutants over the two packages takes roughly five minutes. The sandbox needs a couple of deliberate settings to work at all — each is commented at the option it guards in `stryker.config.mjs`, and that is the copy to keep correct.
+
+Two things run it besides you. CI has a `mutation` job behind `check`, so a change that does not compile fails in under a minute rather than after the suite has been run a thousand times, and the report is uploaded whether the job passed or not. The review workflow has a `Mutation` phase after `CRAP`, which holds the pre-commit gate until every survivor in the files a change touched is either killed or marked. Neither carries its own copy of the threshold: 80 lives in `thresholds.break` and nowhere else.
 
 Entry points are mutated like everything else: `tui/src/cli.ts` and most of `tui/src/index.tsx` mount the app and have no tests, so they are a standing drag on the total rather than a scoring exemption.
 

@@ -31,6 +31,9 @@ export default {
     'mkdir -p packages/tui/node_modules && ln -sfn ../../agent packages/tui/node_modules/agent',
 
   thresholds: { high: 80, low: 80, break: 80 },
-  reporters: ['html', 'clear-text', 'progress'],
+  // `json` alongside the HTML one: the same report as data, which is what a survivor
+  // is picked out of. The HTML page holds its copy inside a script tag, where reading
+  // it means evaluating the page.
+  reporters: ['html', 'json', 'clear-text', 'progress'],
   tempDirName: '.stryker-tmp',
 }

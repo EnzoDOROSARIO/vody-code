@@ -8,6 +8,10 @@ export const meta = {
     { title: 'Verify', detail: 'adversarial pass that kills findings it cannot confirm' },
     { title: 'Fix', detail: 'apply the survivors serially, keep the gate green' },
     { title: 'CRAP', detail: 'coverage + crap4ts, every score to 10 or below' },
+    {
+      title: 'Mutation',
+      detail: 'stryker over the whole repo, every survivor killed or proved equivalent',
+    },
     { title: 'Record', detail: 'record the paths reviewed, so the hook lets a commit through' },
   ],
 }
@@ -21,7 +25,7 @@ const REPO = '/Users/enzodorosario/projects/vody-code'
 
 const CONTEXT = `
 ## Repo
-${REPO} — a Bun + Effect monorepo. Its CLAUDE.md is already in your context; follow it.
+${REPO} — a Bun + Effect monorepo. Its AGENTS.md is already in your context; follow it.
 
 ## What you are reviewing
 Everything not yet committed. Establish it yourself, first, before reading anything else:
@@ -100,6 +104,18 @@ const CRAP_SCHEMA = {
   required: ['green', 'before', 'after', 'notes'],
 }
 
+const MUTATION_SCHEMA = {
+  type: 'object',
+  properties: {
+    green: { type: 'boolean' },
+    score: { type: 'number' },
+    before: { type: 'string' },
+    after: { type: 'string' },
+    notes: { type: 'string' },
+  },
+  required: ['green', 'score', 'before', 'after', 'notes'],
+}
+
 // The verify phase rules on findings by position, because a title is prose and prose does
 // not survive a round trip through a model intact: one trimmed full stop and a finding
 // nobody refuted would be dropped as if they had.
@@ -111,7 +127,7 @@ const LENSES = [
     prompt: `Review the change against the repo's own documented conventions and against the
 Fowler smell baseline (Mysterious Name, Duplicated Code, Feature Envy, Data Clumps, Primitive
 Obsession, Repeated Switches, Shotgun Surgery, Divergent Change, Speculative Generality,
-Message Chains, Middle Man, Refused Bequest). CLAUDE.md is in your context — hold the change
+Message Chains, Middle Man, Refused Bequest). AGENTS.md is in your context — hold the change
 to what it actually says, especially on imports, on where tests live, and on comments that
 explain WHY in prose rather than restating the code. Judge whether new comments are accurate
 and earn their length; a confidently wrong comment is worse than none. A documented repo rule
@@ -233,6 +249,29 @@ if (!crap || !crap.green) {
   return { recorded: false, crap, fixed, surviving }
 }
 
+phase('Mutation')
+
+const SURVIVORS =
+  'bun -e \'const report = await Bun.file("reports/mutation/mutation.json").json(); ' +
+  'for (const [file, held] of Object.entries(report.files)) { ' +
+  'const alive = held.mutants.filter((mutant) => mutant.status === "Survived"); ' +
+  'if (alive.length > 0) console.log(file, alive.map((mutant) => ' +
+  'mutant.location.start.line + ":" + mutant.mutatorName).join(" ")) }\''
+
+const mutation = await agent(
+  `Kill the mutants this change leaves alive, and leave \`bun run mutation\` passing its own threshold.\n${CONTEXT}\n## What the CRAP phase did\n${crap.notes}\n\n## Measuring\n    cd ${REPO} && ${BUN} bun run mutation\nEvery mutant is a whole \`bun test\` run, so it takes about five minutes. Let it finish. While iterating on one file you may narrow it — \`bun run mutation --mutate 'packages/agent/src/tools/glob.ts'\` — but the number you report is a full run. Never lower \`thresholds.break\` in stryker.config.mjs, and never widen \`ignorePatterns\` or \`mutate\` to make a file stop counting: the threshold is the user's, not yours to manage.\n\nThe run writes \`reports/mutation/mutation.json\`. The survivors are its entries with \`"status": "Survived"\`, one line per file:\n    cd ${REPO} && ${SURVIVORS}\n\n## The rule\nA surviving mutant is a missing test, not a number. Kill the ones in the files this change touched — the repo's older backlog is not this review's to clear, and say so rather than wandering into it.\n\nA test written to kill a mutant is still a test: it has to assert behaviour someone would notice — what a tool returns, what the screen shows, what the model is told. Never write one whose only purpose is to touch a line, and never weaken an assertion to make a mutant die.\n\nSome mutants cannot be killed because nothing can observe them — a value never read, an option that restates a library's own default. That is a claim to PROVE, not to assert: apply the mutant by hand, show the suite still passes, put the source back, and only then mark it where it lives with \`// Stryker disable <mutator>: <reason>\`, naming the narrowest mutator that covers it rather than \`all\`. Report every one of them in \`notes\` with the proof. A disable comment you cannot justify that way is a test you owe.\n\n## Do\n1. Run it. Report the per-file table Stryker prints as \`before\`, and list the survivors in the files this change touched.\n2. Kill each one with a test, or mark it with proof.\n3. Re-run in full and report the table as \`after\`.\n4. Finish green:\n     cd ${REPO} && ${BUN} bun run format\n     cd ${REPO} && ${BUN} bun run check\n     cd ${REPO} && ${BUN} bun test\n\nReport: \`score\` is the final total from the full run, \`notes\` holds every test added and every disable with its proof, and \`green\` says whether that run cleared its threshold AND all three commands above finished clean.`,
+  { label: 'kill-mutants', phase: 'Mutation', schema: MUTATION_SCHEMA },
+)
+
+// Asked as data for the same reason the CRAP gate is: a report that narrates its own
+// progress must not be able to read as a pass, and one that never arrived must not
+// throw its way past the gate either.
+if (!mutation || !mutation.green) {
+  log('Mutation phase did not end GREEN — the tree stays unrecorded, so the commit stays held')
+
+  return { recorded: false, mutation, crap, fixed, surviving }
+}
+
 phase('Record')
 
 const recorded = await agent(
@@ -240,4 +279,4 @@ const recorded = await agent(
   { label: 'record', phase: 'Record' },
 )
 
-return { recorded: true, record: recorded, crap, fixed, surviving }
+return { recorded: true, record: recorded, mutation, crap, fixed, surviving }
