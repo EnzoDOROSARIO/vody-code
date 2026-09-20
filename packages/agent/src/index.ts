@@ -37,7 +37,10 @@ export type { Activity, Reply, ToolFailure, ToolResult, Tools } from './activity
 export type { Handlers } from './tools/index.ts'
 
 const systemPrompt = (workspace: string): string =>
-  `You are a coding agent at ${workspace}. Use your tools to solve tasks. Act, don't explain.`
+  `You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
+    Be concise in your responses.
+    Show file paths clearly when working with files
+   You are operating in ${workspace}`
 
 // The arguments are checked against the same schema the tool itself decodes with, so
 // a call that fails here is one the tool is about to refuse. Staying quiet costs

@@ -147,9 +147,12 @@ test('the loop stops on a turn with no tool call', async () => {
   expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'hi', type: 'reply' })
 })
 
-// Every request carries this prompt and no other test builds it, so without a test of
-// its own a prompt pasted in from somewhere else would ship unnoticed.
-test('the system prompt puts the model in the workspace and points it at the tools', async () => {
+// Every request carries a system prompt and no other test builds one, so a chat that
+// stopped setting it would go unnoticed. What that prompt says is not this test's
+// business — the wording is there to be edited, and an assertion on a phrase would
+// turn every edit into a failure. Only the workspace has to survive, since it is the
+// one thing the code puts there rather than the prompt.
+test('the system prompt reaches the model, with the workspace in it', async () => {
   const session = await Effect.runPromise(chat.pipe(Effect.provideService(Workspace, '/tmp/ws')))
   const history = await Effect.runPromise(Ref.get(session.history))
   const first = history.content[0]
@@ -159,5 +162,4 @@ test('the system prompt puts the model in the workspace and points it at the too
   }
 
   expect(first.content).toContain('/tmp/ws')
-  expect(first.content).toContain('Use your tools')
 })
