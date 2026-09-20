@@ -46,6 +46,3 @@ where the loop stops.
 `LanguageModel`, so the loop above never learns that its model is authenticated by a
 subscription. Inference posts to the ChatGPT Codex Responses endpoint, which OpenAI does not
 document — the file says why, and why there is no supported alternative.
-
-Adapted from [learn-claude-code s01](https://github.com/shareAI-lab/learn-claude-code/blob/main/s01_agent_loop/README.md),
-with Effect AI in place of a direct SDK call.
