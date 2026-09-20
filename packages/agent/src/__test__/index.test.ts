@@ -5,57 +5,74 @@ import type { Response } from 'effect/unstable/ai'
 
 import type { BunServices } from '@effect/platform-bun'
 
-import { answer } from '#index.ts'
+import { answer, chat } from '#index.ts'
 import { services } from './testing.ts'
 import { toolkit } from '#tools/index.ts'
+import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
 import type { Handlers } from '#tools/index.ts'
 
-const scriptedParts = (turn: number): Array<Response.StreamPartEncoded> =>
+type Script = (turn: number) => Array<Response.StreamPartEncoded>
+
+const answered: Array<Response.StreamPartEncoded> = [
+  { type: 'text-delta', id: 'text-1', delta: 'it printed ' },
+  { type: 'text-delta', id: 'text-1', delta: 'hi' },
+]
+
+// A model that thinks aloud, reaches for a tool it has spelled correctly, and answers
+// on the turn after.
+const answering: Script = (turn) =>
   turn === 0
-    ? [{ type: 'tool-call', id: 'call-1', name: 'bash', params: { command: 'echo hi' } }]
-    : [
-        { type: 'text-delta', id: 'text-1', delta: 'it printed ' },
-        { type: 'text-delta', id: 'text-1', delta: 'hi' },
+    ? [
+        { type: 'text-delta', id: 'text-0', delta: 'let me look' },
+        { type: 'tool-call', id: 'call-1', name: 'bash', params: { command: 'echo hi' } },
       ]
+    : answered
 
-const scriptedModel = Layer.effect(
-  LanguageModel.LanguageModel,
-  Effect.gen(function* () {
-    const turns = yield* Ref.make(0)
+// The same model with a `bash` call that carries no command, so the `ToolCall` union
+// cannot decode it and the agent reports nothing for the call itself.
+const misdialling: Script = (turn) =>
+  turn === 0 ? [{ type: 'tool-call', id: 'call-1', name: 'bash', params: {} }] : answered
 
-    return yield* LanguageModel.make({
-      generateText: () => Effect.succeed([]),
-      streamText: () =>
-        Stream.unwrap(
-          Effect.map(
-            Ref.getAndUpdate(turns, (turn) => turn + 1),
-            (turn) => Stream.fromIterable(scriptedParts(turn)),
+const scriptedModel = (script: Script): Layer.Layer<LanguageModel.LanguageModel> =>
+  Layer.effect(
+    LanguageModel.LanguageModel,
+    Effect.gen(function* () {
+      const turns = yield* Ref.make(0)
+
+      return yield* LanguageModel.make({
+        generateText: () => Effect.succeed([]),
+        streamText: () =>
+          Stream.unwrap(
+            Effect.map(
+              Ref.getAndUpdate(turns, (turn) => turn + 1),
+              (turn) => Stream.fromIterable(script(turn)),
+            ),
           ),
-        ),
-    })
-  }),
-)
-
-const layer = Layer.mergeAll(scriptedModel, services(process.cwd()))
+      })
+    }),
+  )
 
 type Provided = BunServices.BunServices | LanguageModel.LanguageModel | Handlers
 
-const run = <A, E>(program: Effect.Effect<A, E, Provided>): Promise<A> =>
-  // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-  Effect.runPromise(program.pipe(Effect.provide(layer)))
+const run = <A, E>(script: Script, program: Effect.Effect<A, E, Provided>): Promise<A> =>
+  Effect.runPromise(
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+    program.pipe(Effect.provide(Layer.mergeAll(scriptedModel(script), services(process.cwd())))),
+  )
 
-const asking = (...questions: ReadonlyArray<string>): Promise<Array<Activity>> =>
+const asked = (script: Script, questions: ReadonlyArray<string>): Promise<Array<Activity>> =>
   run(
+    script,
     Effect.gen(function* () {
       const tools = yield* toolkit
-      const chat = yield* Chat.fromPrompt(Prompt.empty)
+      const session = yield* Chat.fromPrompt(Prompt.empty)
 
       const seen: Array<Activity> = []
 
       for (const question of questions) {
-        yield* Stream.runForEach(answer(chat, tools, question), (activity) =>
+        yield* Stream.runForEach(answer(session, tools, question), (activity) =>
           Effect.sync(() => {
             seen.push(activity)
           }),
@@ -66,8 +83,11 @@ const asking = (...questions: ReadonlyArray<string>): Promise<Array<Activity>> =
     }),
   )
 
-test('the loop runs the tool the model asks for, then reports its answer', async () => {
-  const [call, result, reply] = await asking('say hi')
+const asking = (...questions: ReadonlyArray<string>): Promise<Array<Activity>> =>
+  asked(answering, questions)
+
+test('the loop runs the tool the model asks for and reports what came back', async () => {
+  const [, call, result] = await asking('say hi')
 
   expect(call).toMatchObject({
     name: 'bash',
@@ -75,11 +95,20 @@ test('the loop runs the tool the model asks for, then reports its answer', async
     type: 'tool-call',
   })
   expect(result).toMatchObject({ isFailure: false, name: 'bash', type: 'tool-result' })
-  expect(reply).toEqual({ type: 'reply', text: 'it printed hi' })
+})
+
+// The answer is worth nothing on a screen if it only lands once the turn is over, so
+// what the model wrote is handed on in the pieces it wrote them in, id and all. Two
+// pieces of one block share an id; the sentence before a tool call is a block of its own.
+test('the answer arrives in the fragments the model wrote, not in one piece', async () => {
+  const replies = (await asking('say hi')).filter((activity) => activity.type === 'reply')
+
+  expect(replies.map((reply) => reply.text)).toEqual(['let me look', 'it printed ', 'hi'])
+  expect(replies.map((reply) => reply.id)).toEqual(['text-0', 'text-1', 'text-1'])
 })
 
 test('a bash call arrives typed, not as an anonymous payload', async () => {
-  const [call] = await asking('say hi')
+  const [, call] = await asking('say hi')
 
   if (call?.type !== 'tool-call' || call.name !== 'bash') {
     throw new Error(`expected a bash call, got ${String(call?.type)}`)
@@ -92,11 +121,43 @@ test('a bash call arrives typed, not as an anonymous payload', async () => {
   expect(command).toBe('echo hi')
 })
 
+// Nothing is reported for a call the agent could not parse, which is why the flag that
+// sends the loop round again is set from a tap of its own rather than from what the
+// turn reported. The refusal and the answer after it are the proof the loop went round.
+test('a call the agent could not parse still sends the loop round again', async () => {
+  const activities = await asked(misdialling, ['say hi'])
+
+  expect(activities.filter((activity) => activity.type === 'tool-call')).toEqual([])
+  expect(activities.filter((activity) => activity.type === 'tool-result')).toMatchObject([
+    { isFailure: true, name: 'bash', type: 'tool-result' },
+  ])
+  expect(activities.filter((activity) => activity.type === 'reply')).toEqual([
+    { id: 'text-1', text: 'it printed ', type: 'reply' },
+    { id: 'text-1', text: 'hi', type: 'reply' },
+  ])
+})
+
 test('the loop stops on a turn with no tool call', async () => {
   const activities = await asking('say hi', 'and again')
 
-  expect(activities.filter((activity) => activity.type === 'reply')).toEqual([
-    { type: 'reply', text: 'it printed hi' },
-    { type: 'reply', text: 'it printed hi' },
-  ])
+  // Only the first turn of the first question took a tool. Every turn after it
+  // answered in prose, and each of those ended the question that asked it: nothing
+  // follows the last fragment of the second answer.
+  expect(activities.filter((activity) => activity.type === 'tool-call')).toHaveLength(1)
+  expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'hi', type: 'reply' })
+})
+
+// Every request carries this prompt and no other test builds it, so without a test of
+// its own a prompt pasted in from somewhere else would ship unnoticed.
+test('the system prompt puts the model in the workspace and points it at the tools', async () => {
+  const session = await Effect.runPromise(chat.pipe(Effect.provideService(Workspace, '/tmp/ws')))
+  const history = await Effect.runPromise(Ref.get(session.history))
+  const first = history.content[0]
+
+  if (first?.role !== 'system') {
+    throw new Error(`expected a system message, got ${String(first?.role)}`)
+  }
+
+  expect(first.content).toContain('/tmp/ws')
+  expect(first.content).toContain('Use your tools')
 })

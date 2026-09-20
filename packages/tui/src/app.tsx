@@ -14,7 +14,15 @@ export type Ask = (question: string, show: (activity: Activity) => void) => Prom
 /** Who put a line in the transcript, which is all its styling depends on. */
 export type Source = 'agent' | 'call' | 'result' | 'you'
 
+/**
+ * One line of the transcript.
+ *
+ * A line the agent is still writing carries the id of the block of prose it holds, so
+ * the next fragment of that block knows to land on the end of it. Everything else — a
+ * question, a tool, a turn that broke — arrives whole and has no id to carry.
+ */
 export type Line = {
+  readonly id?: string
   readonly source: Source
   readonly text: string
 }
@@ -65,7 +73,7 @@ const gave = (result: ToolResult): string | undefined => {
 
 export const transcribe = (activity: Activity): Line | undefined => {
   if (activity.type === 'reply') {
-    return { source: 'agent', text: activity.text }
+    return { id: activity.id, source: 'agent', text: activity.text }
   }
 
   if (activity.type === 'tool-call') {
@@ -75,6 +83,22 @@ export const transcribe = (activity: Activity): Line | undefined => {
   const shown = gave(activity)
 
   return shown === undefined ? undefined : { source: 'result', text: shown }
+}
+
+// The agent's answer arrives a fragment at a time, so the transcript grows two ways: a
+// fragment of the block the last line is already holding lengthens that line, and
+// everything else lands under it. The first is what a reply being typed out is made of.
+//
+// Matching on the id rather than on the source is what keeps the second block of a
+// reply, and a turn that broke, from being swallowed by the line above them.
+export const written = (lines: ReadonlyArray<Line>, entry: Line): ReadonlyArray<Line> => {
+  const last = lines.at(-1)
+
+  if (entry.id === undefined || last?.id !== entry.id) {
+    return [...lines, entry]
+  }
+
+  return [...lines.slice(0, -1), { ...last, text: last.text + entry.text }]
 }
 
 // A terminal has one font, so a tool's output is set apart the only two ways the
@@ -153,7 +177,7 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const write = (entry: Line): void => setLines((all) => [...all, entry])
+  const write = (entry: Line): void => setLines((all) => written(all, entry))
 
   const show = (activity: Activity): void => {
     const entry = transcribe(activity)

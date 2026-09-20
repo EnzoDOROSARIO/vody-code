@@ -3,7 +3,7 @@ import { Effect } from 'effect'
 import { Response } from 'effect/unstable/ai'
 import { renderToString } from 'ink'
 
-import { App, Prompt, Transcript, keystroke, transcribe } from '#app.tsx'
+import { App, Prompt, Transcript, keystroke, transcribe, written } from '#app.tsx'
 import { DIM, GREY_BACKGROUND, colourful } from './testing.ts'
 
 import { CommandRefused } from 'agent'
@@ -119,7 +119,55 @@ test('a call the agent never ran says so in the same breath', () => {
 })
 
 test('the reply is the agent speaking, not a tool', () => {
-  expect(transcribe({ type: 'reply', text: 'done' })).toEqual({ source: 'agent', text: 'done' })
+  expect(transcribe({ id: 'text-1', text: 'done', type: 'reply' })).toEqual({
+    id: 'text-1',
+    source: 'agent',
+    text: 'done',
+  })
+})
+
+// The agent hands over its answer in the fragments it wrote, and the transcript is
+// where they are put back together: this is the whole of what makes a reply appear on
+// the screen as it is being written, rather than all at once when the turn is over.
+test('a fragment of the block being written lengthens that line', () => {
+  const opened = written([], { id: 'text-1', source: 'agent', text: 'it printed ' })
+
+  expect(written(opened, { id: 'text-1', source: 'agent', text: 'hi' })).toEqual([
+    { id: 'text-1', source: 'agent', text: 'it printed hi' },
+  ])
+})
+
+test('the next block of a reply starts a line of its own', () => {
+  const said: ReadonlyArray<Line> = [{ id: 'text-1', source: 'agent', text: 'one' }]
+
+  expect(written(said, { id: 'text-2', source: 'agent', text: 'two' })).toEqual([
+    { id: 'text-1', source: 'agent', text: 'one' },
+    { id: 'text-2', source: 'agent', text: 'two' },
+  ])
+})
+
+test('a line that arrives whole never joins the one above it', () => {
+  const said: ReadonlyArray<Line> = [{ source: 'agent', text: 'the turn broke' }]
+
+  expect(written(said, { source: 'agent', text: 'and again' })).toEqual([
+    { source: 'agent', text: 'the turn broke' },
+    { source: 'agent', text: 'and again' },
+  ])
+  expect(written([], { source: 'call', text: '$ echo hi' })).toEqual([
+    { source: 'call', text: '$ echo hi' },
+  ])
+})
+
+test('a fragment after a tool ran starts the line the answer is written on', () => {
+  const said: ReadonlyArray<Line> = [
+    { id: 'text-1', source: 'agent', text: 'let me look' },
+    { source: 'result', text: 'exit 0' },
+  ]
+
+  expect(written(said, { id: 'text-1', source: 'agent', text: 'it printed hi' })).toEqual([
+    ...said,
+    { id: 'text-1', source: 'agent', text: 'it printed hi' },
+  ])
 })
 
 test('the transcript renders each line above the prompt', () => {

@@ -39,11 +39,6 @@ export type { Handlers } from './tools/index.ts'
 const systemPrompt = (workspace: string): string =>
   `You are a coding agent at ${workspace}. Use your tools to solve tasks. Act, don't explain.`
 
-type Progress = {
-  readonly calledTools: boolean
-  readonly text: string
-}
-
 // The arguments are checked against the same schema the tool itself decodes with, so
 // a call that fails here is one the tool is about to refuse. Staying quiet costs
 // nothing: the refusal arrives as the very next result, and that result is reported.
@@ -55,27 +50,19 @@ const called = (part: Response.ToolCallParts<Tools, 'opaque'>): Stream.Stream<Ac
     ),
   )
 
+// Text leaves as it lands, one fragment per part, so whoever is watching can show the
+// answer being written rather than waiting for the turn to end. The fragments a model
+// writes before reaching for a tool are the agent thinking aloud, and they go out too.
 const reported = (part: Response.StreamPart<Tools, 'opaque'>): Stream.Stream<Activity> => {
+  if (part.type === 'text-delta') {
+    return Stream.succeed({ id: part.id, text: part.delta, type: 'reply' })
+  }
+
   if (part.type === 'tool-call') {
     return called(part)
   }
 
   return part.type === 'tool-result' ? Stream.succeed(part) : Stream.empty
-}
-
-const record = (
-  progress: Ref.Ref<Progress>,
-  part: Response.StreamPart<Tools, 'opaque'>,
-): Effect.Effect<void> => {
-  if (part.type === 'text-delta') {
-    return Ref.update(progress, (seen) => ({ ...seen, text: seen.text + part.delta }))
-  }
-
-  if (part.type === 'tool-call') {
-    return Ref.update(progress, (seen) => ({ ...seen, calledTools: true }))
-  }
-
-  return Effect.void
 }
 
 export const answer = (
@@ -85,22 +72,23 @@ export const answer = (
 ): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
   Stream.unwrap(
     Effect.gen(function* () {
-      const progress = yield* Ref.make<Progress>({ calledTools: false, text: '' })
+      const calledTools = yield* Ref.make(false)
 
       const turn = chat.streamText({ prompt: question, toolkit: tools }).pipe(
-        Stream.tap((part) => record(progress, part)),
+        Stream.tap((part) =>
+          part.type === 'tool-call' ? Ref.set(calledTools, true) : Effect.void,
+        ),
         Stream.flatMap(reported),
       )
 
       // A turn that reached for a tool has not answered yet. The empty prompt sends
-      // the model back in with the results the chat is already holding.
+      // the model back in with the results the chat is already holding. A turn that
+      // did not has already said everything it had to say, fragment by fragment.
       const rest = Stream.unwrap(
         Effect.map(
-          Ref.get(progress),
-          (seen): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
-            seen.calledTools
-              ? answer(chat, tools, [])
-              : Stream.succeed({ type: 'reply', text: seen.text }),
+          Ref.get(calledTools),
+          (reached): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
+            reached ? answer(chat, tools, []) : Stream.empty,
         ),
       )
 

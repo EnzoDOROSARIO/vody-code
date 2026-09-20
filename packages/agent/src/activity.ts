@@ -42,10 +42,17 @@ export type ToolResult = Response.ToolResultParts<Tools>
 /** Why a tool returned nothing: its own error, the model's, or a call left unrun. */
 export type ToolFailure = Extract<ToolResult, { readonly isFailure: true }>['result']
 
-/** The agent's last word on a question, once it has stopped reaching for tools. */
+/**
+ * A piece of what the agent is saying, handed on the moment the model writes it.
+ *
+ * The answer arrives in fragments, and the fragments sharing an `id` are one block of
+ * prose. Passing them along one at a time is what lets a screen show the answer being
+ * written; joining them back up is that screen's business, as the rest of the shape is.
+ */
 export type Reply = {
-  readonly type: 'reply'
+  readonly id: string
   readonly text: string
+  readonly type: 'reply'
 }
 
 // One thing the agent did on the way to an answer. Every one of these is a report of
