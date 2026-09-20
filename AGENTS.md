@@ -88,7 +88,7 @@ Ink views are tested with Ink's own `renderToString`, which renders to a string 
 
 Bun's runner has no Stryker plugin, so every mutant pays for a full `bun test`; around 1070 mutants over the two packages takes roughly five minutes. The sandbox needs a couple of deliberate settings to work at all — each is commented at the option it guards in `stryker.config.mjs`, and that is the copy to keep correct.
 
-Two things run it besides you. CI has a `mutation` job behind `check`, so a change that does not compile fails in under a minute rather than after the suite has been run a thousand times, and the report is uploaded whether the job passed or not. The review workflow has a `Mutation` phase after `CRAP`, which holds the pre-commit gate until every survivor in the files a change touched is either killed or marked. Neither carries its own copy of the threshold: 80 lives in `thresholds.break` and nowhere else.
+It runs locally, not in CI: by hand, and in the review workflow's `Mutation` phase after `CRAP`, which holds the pre-commit gate until every survivor in the files a change touched is either killed or marked. Neither carries its own copy of the threshold — 80 lives in `thresholds.break` and nowhere else — so putting the run back in CI is a job that calls `bun run mutation` and nothing more.
 
 Entry points are mutated like everything else: `tui/src/cli.ts` and most of `tui/src/index.tsx` mount the app and have no tests, so they are a standing drag on the total rather than a scoring exemption.
 

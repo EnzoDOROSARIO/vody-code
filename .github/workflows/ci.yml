@@ -1,6 +1,9 @@
-# `check` is the same gates as `bun run check`, plus the test suite, in the order
-# the pre-commit hook runs them: each step only runs if the one before it passed.
-# `mutation` follows it, and is the one thing here the hook does not also run.
+# The same gates as `bun run check`, plus the test suite, in the order the
+# pre-commit hook runs them: each step only runs if the one before it passed.
+#
+# `bun run mutation` is deliberately not here: it is minutes rather than seconds,
+# and for now it runs locally — by hand, and in the review workflow's `Mutation`
+# phase, which holds a commit until the survivors are dealt with.
 #
 # `bun install` runs the `prepare` script, which applies the `@effect/tsgo`
 # patch to the TypeScript and Oxlint binaries in `node_modules`. Lint and
@@ -39,36 +42,3 @@ jobs:
 
       - name: Test
         run: bun test
-
-  # Every mutant is a whole `bun test` run, so this is minutes where `check` is
-  # seconds. It waits behind `check` so a change that does not compile, or whose
-  # tests fail outright, says so in under a minute rather than after the suite has
-  # been run a thousand times.
-  #
-  # The score it has to clear is `thresholds.break` in `stryker.config.mjs`, which
-  # is where the number belongs: a second copy here would be one to keep in step.
-  mutation:
-    needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Mutation
-        run: bun run mutation
-
-      # Uploaded on a failure too — a run that broke the threshold is exactly the one
-      # whose surviving mutants are worth reading.
-      - name: Upload the mutation report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mutation-report
-          path: reports/mutation/
