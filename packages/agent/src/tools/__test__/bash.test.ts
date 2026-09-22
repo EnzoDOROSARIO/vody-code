@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'bun:test'
 import { Effect, FileSystem } from 'effect'
 
-import { call, text, workspace } from './harness.ts'
-import { onDisk, removeWorkspaces } from '#__test__/testing.ts'
+import { call, text } from './harness.ts'
+import { onDisk, removeWorkspaces, workspace } from '#__test__/testing.ts'
 
 import type { Outcome } from './harness.ts'
 import { CommandRefused, CommandTimedOut } from '#tools/index.ts'

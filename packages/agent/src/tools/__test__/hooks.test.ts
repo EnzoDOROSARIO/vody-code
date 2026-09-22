@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'bun:test'
 import { Effect, Ref, Stream } from 'effect'
 
-import { call, workspace } from './harness.ts'
-import { removeWorkspaces } from '#__test__/testing.ts'
+import { call, run } from './harness.ts'
+import { outside, removeWorkspaces, unhooked, workspace } from '#__test__/testing.ts'
 import { FileSystemRefused } from '#tools/index.ts'
 import type { Call } from '#tools/index.ts'
 
@@ -41,14 +41,14 @@ test('a hook that fails stops the call, and its failure is the tool’s answer',
   expect(await Bun.file(`${root}/new.txt`).exists()).toBe(false)
 })
 
-// The same call answered twice, once with nothing at the seam and once through a hook
-// that succeeds, so what is compared is the seam's effect on the answer and not the
+// The same call answered twice, once through the Gate the agent runs and once through a
+// hook that succeeds, so what is compared is the seam's effect on the answer and not the
 // answer's wording, which is write_file's own business.
 test('a hook that does nothing changes nothing', async () => {
-  const unhooked = await workspace()
+  const gated = await workspace()
   const hooked = await workspace()
 
-  const without = await call(unhooked, (tools) =>
+  const without = await call(gated, (tools) =>
     tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
   )
 
@@ -60,6 +60,20 @@ test('a hook that does nothing changes nothing', async () => {
 
   expect(through).toEqual(without)
   expect(await Bun.file(`${hooked}/new.txt`).text()).toBe('hello')
+})
+
+// The seam with nothing provided at it, which is where its default lives: a call is
+// handed straight to the tool, and a write that the Gate would refuse goes ahead. That
+// is what the Gate's absence means, so it is asserted by a write the Gate refuses.
+test('with nothing at the seam, a tool runs unexamined', async () => {
+  const root = await workspace()
+
+  const outcome = await run(unhooked(root), (tools) =>
+    tools.handle('write_file', { path: '../outside/new.txt', content: 'hello' }),
+  )
+
+  expect(outcome.isFailure).toBe(false)
+  expect(await Bun.file(`${outside(root)}/new.txt`).text()).toBe('hello')
 })
 
 test('every tool passes through the seam on its way in', async () => {

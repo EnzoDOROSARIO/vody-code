@@ -27,6 +27,10 @@ export { Hooks } from './hooks.ts'
 
 export { FileIsBinary } from './read-file.ts'
 
+// Raised by the Gate in front of write_file and edit_file rather than by either tool,
+// but it is one of the answers they can give, so it belongs in the same vocabulary.
+export { OutsidePerimeter } from '#perimeter.ts'
+
 export { toolkit } from './toolkit.ts'
 
 export { FileNotRead } from './write-file.ts'

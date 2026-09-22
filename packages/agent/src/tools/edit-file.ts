@@ -5,6 +5,7 @@ import { Tool, Toolkit } from 'effect/unstable/ai'
 import { FileSystemRefused, refused } from './errors.ts'
 import { Files } from './files.ts'
 import { countOccurrences, numbered, toLines } from './text.ts'
+import { OutsidePerimeter } from '#perimeter.ts'
 import { Workspace } from '#workspace.ts'
 
 const CONTEXT_LINES = 3
@@ -94,7 +95,8 @@ const editFile = Tool.make('edit_file', {
     replace_all: Schema.optionalKey(Schema.Boolean),
   }),
   success: Schema.String,
-  failure: Schema.Union([TextNotFound, TextNotUnique, FileSystemRefused]),
+  // Declared for the Gate in front of this tool, as in write_file.
+  failure: Schema.Union([TextNotFound, TextNotUnique, FileSystemRefused, OutsidePerimeter]),
   failureMode: 'return',
 })
 

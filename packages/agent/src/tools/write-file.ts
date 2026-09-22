@@ -4,6 +4,7 @@ import { Tool, Toolkit } from 'effect/unstable/ai'
 
 import { FileSystemRefused, refused } from './errors.ts'
 import { Files, modifiedAt } from './files.ts'
+import { OutsidePerimeter } from '#perimeter.ts'
 import { Workspace } from '#workspace.ts'
 
 export class FileNotRead extends Schema.TaggedError<FileNotRead>()('FileNotRead', {
@@ -20,7 +21,9 @@ const writeFile = Tool.make('write_file', {
   ].join(' '),
   parameters: Schema.Struct({ path: Schema.String, content: Schema.String }),
   success: Schema.String,
-  failure: Schema.Union([FileNotRead, FileSystemRefused]),
+  // `OutsidePerimeter` is the Gate's, not this tool's: it is declared here because a
+  // hook can only stop a tool with a failure the tool has declared.
+  failure: Schema.Union([FileNotRead, FileSystemRefused, OutsidePerimeter]),
   failureMode: 'return',
 })
 

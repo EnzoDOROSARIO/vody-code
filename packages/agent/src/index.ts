@@ -9,6 +9,7 @@ import { ToolCall } from './activity.ts'
 import * as Codex from './codex.ts'
 import { Request } from './request.ts'
 import { toolkitLayer } from './tools/index.ts'
+import * as WriteGate from './write-gate.ts'
 
 import type { Activity } from './activity.ts'
 import type { Handlers, Tools } from './tools/index.ts'
@@ -23,6 +24,7 @@ export {
   FileIsBinary,
   FileNotRead,
   FileSystemRefused,
+  OutsidePerimeter,
   TextNotFound,
   TextNotUnique,
 } from './tools/index.ts'
@@ -113,8 +115,20 @@ export const answer = (
 ): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
   respond(chat, tools, request).pipe(Stream.provideService(Request, Option.some(request)))
 
+/**
+ * The handlers the agent runs, with the write Gate in front of them. The Gate goes in
+ * under the toolkit, where the hooks are read, so no ungated set is ever built; and
+ * this is the one gated set, which the package's tests build on as well, so the agent
+ * cannot stop running the Gate without the Gate's own tests saying so.
+ */
+export const handlers: Layer.Layer<
+  Handlers,
+  never,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+> = toolkitLayer.pipe(Layer.provide(WriteGate.layer))
+
 export const layer: Layer.Layer<
   LanguageModel.LanguageModel | Handlers,
   Codex.CodexAuthenticationRequired,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
-> = Layer.mergeAll(toolkitLayer, Codex.layer.pipe(Layer.provide(FetchHttpClient.layer)))
+> = Layer.mergeAll(handlers, Codex.layer.pipe(Layer.provide(FetchHttpClient.layer)))

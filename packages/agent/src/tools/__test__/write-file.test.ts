@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from 'bun:test'
 import { Effect, Stream } from 'effect'
 
-import { call, touch, workspace } from './harness.ts'
-import { removeWorkspaces } from '#__test__/testing.ts'
-import { FileNotRead, FileSystemRefused } from '#tools/index.ts'
+import { call, touch } from './harness.ts'
+import { outside, removeWorkspaces, workspace } from '#__test__/testing.ts'
+import { FileNotRead, FileSystemRefused, OutsidePerimeter } from '#tools/index.ts'
 
 afterEach(removeWorkspaces)
 
@@ -168,13 +168,19 @@ test('write_file reports a parent that cannot be made a directory', async () => 
   expect(outcome.result).toBeInstanceOf(FileSystemRefused)
 })
 
-test('write_file resolves a relative path against the workspace', async () => {
+// The path is resolved against the Workspace, and that is what puts it outside the
+// Perimeter: the fixture past the root is the outside-the-Perimeter case, unchanged.
+// The landing path is pinned exactly, since resolving against the process's own
+// directory instead would also end in `outside/new.txt`.
+test('write_file resolves a relative path against the workspace, and so lands outside', async () => {
   const root = await workspace()
 
   const outcome = await call(root, (tools) =>
     tools.handle('write_file', { path: '../outside/new.txt', content: 'hello' }),
   )
 
-  expect(outcome.isFailure).toBe(false)
-  expect(await Bun.file(`${root}/../outside/new.txt`).text()).toBe('hello')
+  expect(outcome.isFailure).toBe(true)
+  expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
+  expect(outcome.result).toMatchObject({ path: `${outside(root)}/new.txt` })
+  expect(await Bun.file(`${outside(root)}/new.txt`).exists()).toBe(false)
 })
