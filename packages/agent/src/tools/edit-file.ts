@@ -1,6 +1,5 @@
 import { Effect, FileSystem, Path, Schema } from 'effect'
 
-import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
 
 import { FileSystemRefused, refused } from './errors.ts'
@@ -102,97 +101,93 @@ const editFile = Tool.make('edit_file', {
 export const toolkit: Toolkit.Toolkit<{ readonly edit_file: typeof editFile }> =
   Toolkit.make(editFile)
 
-export const layer: Layer.Layer<
-  Tool.HandlersFor<(typeof toolkit)['tools']>,
+export const handlers: Effect.Effect<
+  Toolkit.HandlersFrom<(typeof toolkit)['tools']>,
   never,
   Files | FileSystem.FileSystem | Path.Path
-> = toolkit.toLayer(
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
+> = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
 
-    const root = yield* Workspace
+  const root = yield* Workspace
 
-    const files = yield* Files
+  const files = yield* Files
 
-    return toolkit.of({
-      edit_file: Effect.fn('edit_file')(function* ({
-        new_text: wanted,
-        old_text: sought,
-        path: target,
-        replace_all: every,
-      }) {
-        const resolved = path.resolve(root, target)
+  return toolkit.of({
+    edit_file: Effect.fn('edit_file')(function* ({
+      new_text: wanted,
+      old_text: sought,
+      path: target,
+      replace_all: every,
+    }) {
+      const resolved = path.resolve(root, target)
 
-        const bytes = yield* fs.readFile(resolved).pipe(Effect.mapError(refused))
+      const bytes = yield* fs.readFile(resolved).pipe(Effect.mapError(refused))
 
-        // `ignoreBOM` keeps a leading BOM as a character rather than dropping it, so
-        // the file can be written back with the mark it had.
-        const decoded = new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes)
+      // `ignoreBOM` keeps a leading BOM as a character rather than dropping it, so
+      // the file can be written back with the mark it had.
+      const decoded = new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes)
 
-        const mark = markOf(decoded)
+      const mark = markOf(decoded)
 
-        const contents = decoded.slice(mark.length)
+      const contents = decoded.slice(mark.length)
 
-        if (sought === '') {
-          return yield* new TextNotFound({
-            path: target,
-            reason: `edit_file was given an empty old_text — pass the text to replace, copied from ${target}`,
-          })
-        }
+      if (sought === '') {
+        return yield* new TextNotFound({
+          path: target,
+          reason: `edit_file was given an empty old_text — pass the text to replace, copied from ${target}`,
+        })
+      }
 
-        // The model types plain newlines whatever the file uses, so move its text to the
-        // file's convention rather than making it guess.
-        const found = sightings(contents, sought, wanted)
+      // The model types plain newlines whatever the file uses, so move its text to the
+      // file's convention rather than making it guess.
+      const found = sightings(contents, sought, wanted)
 
-        const occurrences = found.reduce((total, sighting) => total + sighting.occurrences, 0)
+      const occurrences = found.reduce((total, sighting) => total + sighting.occurrences, 0)
 
-        if (occurrences === 0) {
-          return yield* new TextNotFound({
-            path: target,
-            reason: `edit_file found no occurrence of old_text in ${target} — read the file and retry with text copied from it`,
-          })
-        }
+      if (occurrences === 0) {
+        return yield* new TextNotFound({
+          path: target,
+          reason: `edit_file found no occurrence of old_text in ${target} — read the file and retry with text copied from it`,
+        })
+      }
 
-        if (occurrences > 1 && every !== true) {
-          return yield* new TextNotUnique({
-            path: target,
-            occurrences,
-            reason: `edit_file found ${occurrences} occurrences of old_text in ${target} and will not guess between them — extend old_text with the lines around the one you mean, or pass replace_all to change all ${occurrences}`,
-          })
-        }
+      if (occurrences > 1 && every !== true) {
+        return yield* new TextNotUnique({
+          path: target,
+          occurrences,
+          reason: `edit_file found ${occurrences} occurrences of old_text in ${target} and will not guess between them — extend old_text with the lines around the one you mean, or pass replace_all to change all ${occurrences}`,
+        })
+      }
 
-        // One sighting of one occurrence when the match was unique, every sighting when
-        // replace_all asked for them, and each replaced in the framing it was found in.
-        const edited = found.reduce(
-          (text, sighting) =>
-            text.split(sighting.framing.original).join(sighting.framing.replacement),
-          contents,
-        )
+      // One sighting of one occurrence when the match was unique, every sighting when
+      // replace_all asked for them, and each replaced in the framing it was found in.
+      const edited = found.reduce(
+        (text, sighting) =>
+          text.split(sighting.framing.original).join(sighting.framing.replacement),
+        contents,
+      )
 
-        yield* files.write(resolved, mark + edited)
+      yield* files.write(resolved, mark + edited)
 
-        yield* files.remember(resolved)
+      yield* files.remember(resolved)
 
-        const anchor = found.reduce((first, sighting) =>
-          sighting.at < first.at ? sighting : first,
-        )
+      const anchor = found.reduce((first, sighting) => (sighting.at < first.at ? sighting : first))
 
-        const editedLines = toLines(reframe(edited, '\n'))
+      const editedLines = toLines(reframe(edited, '\n'))
 
-        const firstEdited = toLines(contents.slice(0, anchor.at)).length
+      const firstEdited = toLines(contents.slice(0, anchor.at)).length
 
-        const from = Math.max(0, firstEdited - 1 - CONTEXT_LINES)
+      const from = Math.max(0, firstEdited - 1 - CONTEXT_LINES)
 
-        const to = Math.min(
-          editedLines.length,
-          firstEdited + toLines(anchor.framing.replacement).length + CONTEXT_LINES,
-        )
+      const to = Math.min(
+        editedLines.length,
+        firstEdited + toLines(anchor.framing.replacement).length + CONTEXT_LINES,
+      )
 
-        const snippet = numbered(editedLines.slice(from, to), from + 1)
+      const snippet = numbered(editedLines.slice(from, to), from + 1)
 
-        return `Edited ${target} (${occurrences} ${occurrences === 1 ? 'replacement' : 'replacements'})\n${snippet}`
-      }),
-    })
-  }),
-)
+      return `Edited ${target} (${occurrences} ${occurrences === 1 ? 'replacement' : 'replacements'})\n${snippet}`
+    }),
+  })
+})

@@ -1,6 +1,5 @@
 import { Duration, Effect, FileSystem, Schema, Stream } from 'effect'
 
-import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
@@ -136,67 +135,65 @@ const bash = Tool.make('bash', {
 
 export const toolkit: Toolkit.Toolkit<{ readonly bash: typeof bash }> = Toolkit.make(bash)
 
-export const layer: Layer.Layer<
-  Tool.HandlersFor<(typeof toolkit)['tools']>,
+export const handlers: Effect.Effect<
+  Toolkit.HandlersFrom<(typeof toolkit)['tools']>,
   never,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem
-> = toolkit.toLayer(
-  Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-    const fs = yield* FileSystem.FileSystem
+> = Effect.gen(function* () {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const fs = yield* FileSystem.FileSystem
 
-    const root = yield* Workspace
+  const root = yield* Workspace
 
-    return toolkit.of({
-      bash: Effect.fn('bash')(function* ({ command, timeout_seconds: requested }) {
-        const seconds = Math.min(requested ?? DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS)
+  return toolkit.of({
+    bash: Effect.fn('bash')(function* ({ command, timeout_seconds: requested }) {
+      const seconds = Math.min(requested ?? DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS)
 
-        const output = yield* makeOutput(fs)
+      const output = yield* makeOutput(fs)
 
-        const run = Effect.scoped(
-          Effect.gen(function* () {
-            const handle = yield* spawner.spawn(
-              ChildProcess.make('sh', ['-c', command], {
-                cwd: root,
-                stdin: 'ignore',
-                killSignal: 'SIGTERM',
-                forceKillAfter: Duration.seconds(2),
-              }),
-            )
+      const run = Effect.scoped(
+        Effect.gen(function* () {
+          const handle = yield* spawner.spawn(
+            ChildProcess.make('sh', ['-c', command], {
+              cwd: root,
+              stdin: 'ignore',
+              killSignal: 'SIGTERM',
+              forceKillAfter: Duration.seconds(2),
+            }),
+          )
 
-            yield* Stream.runForEach(Stream.decodeText(handle.all), output.collect)
+          yield* Stream.runForEach(Stream.decodeText(handle.all), output.collect)
 
-            return yield* handle.exitCode
-          }),
-        ).pipe(
-          Effect.mapError(
-            (error) =>
-              new CommandRefused({
-                reason: `bash could not run \`${command}\`: ${error.message}`,
-              }),
-          ),
-        )
+          return yield* handle.exitCode
+        }),
+      ).pipe(
+        Effect.mapError(
+          (error) =>
+            new CommandRefused({
+              reason: `bash could not run \`${command}\`: ${error.message}`,
+            }),
+        ),
+      )
 
-        const code = yield* run.pipe(
-          Effect.timeoutOrElse({
-            duration: Duration.seconds(seconds),
-            orElse: () =>
-              Effect.flatMap(output.seal, (shown) =>
-                Effect.fail(
-                  new CommandTimedOut({
-                    seconds,
-                    output: shown,
-                    reason: timedOut(command, seconds),
-                  }),
-                ),
+      const code = yield* run.pipe(
+        Effect.timeoutOrElse({
+          duration: Duration.seconds(seconds),
+          orElse: () =>
+            Effect.flatMap(output.seal, (shown) =>
+              Effect.fail(
+                new CommandTimedOut({
+                  seconds,
+                  output: shown,
+                  reason: timedOut(command, seconds),
+                }),
               ),
-          }),
-        )
+            ),
+        }),
+      )
 
-        const shown = yield* output.seal
+      const shown = yield* output.seal
 
-        return `exit ${code}\n${shown}`
-      }),
-    })
-  }),
-)
+      return `exit ${code}\n${shown}`
+    }),
+  })
+})

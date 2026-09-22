@@ -9,8 +9,8 @@ import { ToolCall } from './activity.ts'
 import * as Codex from './codex.ts'
 import { toolkitLayer } from './tools/index.ts'
 
-import type { Activity, Tools } from './activity.ts'
-import type { Handlers } from './tools/index.ts'
+import type { Activity } from './activity.ts'
+import type { Handlers, Tools } from './tools/index.ts'
 
 export { ToolCall } from './activity.ts'
 
@@ -34,9 +34,9 @@ export { chat, InstructionsUnreadable } from './prompt.ts'
 
 export { Workspace } from './workspace.ts'
 
-export type { Activity, Reply, ToolFailure, ToolResult, Tools } from './activity.ts'
+export type { Activity, Reply, ToolFailure, ToolResult } from './activity.ts'
 
-export type { Handlers } from './tools/index.ts'
+export type { Handlers, Tools } from './tools/index.ts'
 
 // The arguments are checked against the same schema the tool itself decodes with, so
 // a call that fails here is one the tool is about to refuse. Staying quiet costs

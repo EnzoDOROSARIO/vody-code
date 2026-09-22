@@ -5,7 +5,7 @@ import type { AiError, Tool, Toolkit } from 'effect/unstable/ai'
 import { toolkit } from '#tools/index.ts'
 import { onDisk, services, temporary } from '#__test__/testing.ts'
 
-type Tools = (typeof toolkit)['tools']
+import type { Hooks, Tools } from '#tools/index.ts'
 
 export type Outcome = Tool.Result<Tools[keyof Tools]>
 
@@ -36,11 +36,13 @@ export const touch = (target: string, iso: string): Promise<void> =>
     }),
   )
 
+// Run one tool, with whatever `hooks` puts at the seam; by default, nothing.
 export const call = <A, E>(
   root: string,
   handle: (
     tools: Toolkit.WithHandler<Tools>,
   ) => Effect.Effect<Stream.Stream<A, E>, AiError.AiError>,
+  hooks?: Hooks,
 ): Promise<A> => {
   const program = Effect.gen(function* () {
     const results = yield* Stream.runCollect(yield* handle(yield* toolkit))
@@ -51,7 +53,7 @@ export const call = <A, E>(
   })
 
   // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-  return Effect.runPromise(program.pipe(Effect.provide(services(root))))
+  return Effect.runPromise(program.pipe(Effect.provide(services(root, hooks))))
 }
 
 export const text = (result: Outcome): string => (Predicate.isString(result) ? result : '')

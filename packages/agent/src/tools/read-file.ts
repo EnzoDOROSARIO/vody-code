@@ -1,6 +1,5 @@
 import { Effect, FileSystem, Path, Schema } from 'effect'
 
-import type { Layer } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
 
 import { FileSystemRefused, refused } from './errors.ts'
@@ -104,56 +103,54 @@ const readFile = Tool.make('read_file', {
 export const toolkit: Toolkit.Toolkit<{ readonly read_file: typeof readFile }> =
   Toolkit.make(readFile)
 
-export const layer: Layer.Layer<
-  Tool.HandlersFor<(typeof toolkit)['tools']>,
+export const handlers: Effect.Effect<
+  Toolkit.HandlersFrom<(typeof toolkit)['tools']>,
   never,
   Files | FileSystem.FileSystem | Path.Path
-> = toolkit.toLayer(
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
+> = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
 
-    const root = yield* Workspace
+  const root = yield* Workspace
 
-    const files = yield* Files
+  const files = yield* Files
 
-    return toolkit.of({
-      read_file: Effect.fn('read_file')(function* ({ limit, offset, path: target }) {
-        const resolved = path.resolve(root, target)
+  return toolkit.of({
+    read_file: Effect.fn('read_file')(function* ({ limit, offset, path: target }) {
+      const resolved = path.resolve(root, target)
 
-        const bytes = yield* fs.readFile(resolved).pipe(Effect.mapError(refused))
+      const bytes = yield* fs.readFile(resolved).pipe(Effect.mapError(refused))
 
-        if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
-          return yield* new FileIsBinary({
-            path: target,
-            reason: `read_file will not decode ${target}: the bytes include NUL, so it is not text — inspect it with bash if you need to`,
-          })
-        }
+      if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
+        return yield* new FileIsBinary({
+          path: target,
+          reason: `read_file will not decode ${target}: the bytes include NUL, so it is not text — inspect it with bash if you need to`,
+        })
+      }
 
-        const contents = new TextDecoder().decode(bytes)
+      const contents = new TextDecoder().decode(bytes)
 
-        if (contents === '') {
-          yield* files.remember(resolved)
+      if (contents === '') {
+        yield* files.remember(resolved)
 
-          return '(empty file)'
-        }
+        return '(empty file)'
+      }
 
-        const lines = toLines(contents)
+      const lines = toLines(contents)
 
-        const from = (offset ?? 1) - 1
+      const from = (offset ?? 1) - 1
 
-        if (from >= lines.length) {
-          return `(offset ${offset ?? 1} is past the end of ${target}, which has ${lines.length} lines)`
-        }
+      if (from >= lines.length) {
+        return `(offset ${offset ?? 1} is past the end of ${target}, which has ${lines.length} lines)`
+      }
 
-        const shown = view(lines, from, limit ?? DEFAULT_LINE_LIMIT, MAX_READ_CHARACTERS)
+      const shown = view(lines, from, limit ?? DEFAULT_LINE_LIMIT, MAX_READ_CHARACTERS)
 
-        if (shown.complete) {
-          yield* files.remember(resolved)
-        }
+      if (shown.complete) {
+        yield* files.remember(resolved)
+      }
 
-        return shown.text
-      }),
-    })
-  }),
-)
+      return shown.text
+    }),
+  })
+})

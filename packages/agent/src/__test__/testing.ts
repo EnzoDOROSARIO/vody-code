@@ -1,13 +1,20 @@
 import { BunServices } from '@effect/platform-bun'
 import { Effect, FileSystem, Layer } from 'effect'
 
-import { toolkitLayer } from '#tools/index.ts'
+import { Hooks, toolkitLayer } from '#tools/index.ts'
 import { Workspace } from '#workspace.ts'
 
 import type { Handlers } from '#tools/index.ts'
 
-export const services = (workspace: string): Layer.Layer<BunServices.BunServices | Handlers> =>
+// Hooks are read where the toolkit layer is built, so they go in under it. A test that
+// passes none gets the reference's own default, the way the agent does: nothing is
+// provided at the seam, so what every unhooked test runs through is that default.
+export const services = (
+  workspace: string,
+  hooks?: Hooks,
+): Layer.Layer<BunServices.BunServices | Handlers> =>
   toolkitLayer.pipe(
+    Layer.provide(hooks === undefined ? Layer.empty : Layer.succeed(Hooks, hooks)),
     Layer.provideMerge(BunServices.layer),
     Layer.provideMerge(Layer.succeed(Workspace, workspace)),
   )

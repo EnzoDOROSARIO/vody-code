@@ -4,7 +4,7 @@ import type { Response } from 'effect/unstable/ai'
 
 import { toolkit } from './tools/index.ts'
 
-export type Tools = (typeof toolkit)['tools']
+import type { Tools } from './tools/index.ts'
 
 // A streamed tool call carries its arguments as the JSON the model sent, which the
 // provider never type-checked. Parsing them back through the tool's own parameter
