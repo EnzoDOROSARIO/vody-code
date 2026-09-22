@@ -1,9 +1,13 @@
 import { BunServices } from '@effect/platform-bun'
-import { Effect, FileSystem, Layer } from 'effect'
+import { Effect, FileSystem, Layer, Ref, Stream } from 'effect'
+import { Chat, LanguageModel, Prompt } from 'effect/unstable/ai'
+import type { Response } from 'effect/unstable/ai'
 
-import { Hooks, toolkitLayer } from '#tools/index.ts'
+import { answer } from '#index.ts'
+import { Hooks, toolkit, toolkitLayer } from '#tools/index.ts'
 import { Workspace } from '#workspace.ts'
 
+import type { Activity } from '#activity.ts'
 import type { Handlers } from '#tools/index.ts'
 
 // Hooks are read where the toolkit layer is built, so they go in under it. A test that
@@ -51,3 +55,64 @@ export const removeWorkspaces = (): Promise<void> =>
       }
     }),
   )
+
+/**
+ * What the language model streams back on each turn of a conversation, as a function
+ * of the turn number: turn 0 is the answer to the first question, turn 1 to whatever
+ * follows it, and so on. A turn whose parts carry no `tool-call` ends the question; one
+ * with a `tool-call` sends the loop round again, to the next turn.
+ */
+export type Script = (turn: number) => Array<Response.StreamPartEncoded>
+
+// The highest seam in the package: the model itself, replaced by a script. Nothing
+// below it is substituted, so the tools run for real against the workspace.
+export const scriptedModel = (script: Script): Layer.Layer<LanguageModel.LanguageModel> =>
+  Layer.effect(
+    LanguageModel.LanguageModel,
+    Effect.gen(function* () {
+      const turns = yield* Ref.make(0)
+
+      return yield* LanguageModel.make({
+        generateText: () => Effect.succeed([]),
+        streamText: () =>
+          Stream.unwrap(
+            Effect.map(
+              Ref.getAndUpdate(turns, (turn) => turn + 1),
+              (turn) => Stream.fromIterable(script(turn)),
+            ),
+          ),
+      })
+    }),
+  )
+
+/**
+ * Put each question to the agent in turn, in one conversation, and collect every
+ * Activity it reported along the way. The directory the tests were started in is the
+ * Workspace, so the tools the script reaches for run against this repository.
+ */
+export const asked = (
+  script: Script,
+  questions: ReadonlyArray<string>,
+): Promise<Array<Activity>> => {
+  const program = Effect.gen(function* () {
+    const tools = yield* toolkit
+    const session = yield* Chat.fromPrompt(Prompt.empty)
+
+    const seen: Array<Activity> = []
+
+    for (const question of questions) {
+      yield* Stream.runForEach(answer(session, tools, question), (activity) =>
+        Effect.sync(() => {
+          seen.push(activity)
+        }),
+      )
+    }
+
+    return seen
+  })
+
+  return Effect.runPromise(
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+    program.pipe(Effect.provide(Layer.mergeAll(scriptedModel(script), services(process.cwd())))),
+  )
+}

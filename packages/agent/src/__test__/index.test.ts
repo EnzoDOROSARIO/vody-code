@@ -1,18 +1,10 @@
 import { expect, test } from 'bun:test'
-import { Effect, Layer, Ref, Stream } from 'effect'
-import { Chat, LanguageModel, Prompt } from 'effect/unstable/ai'
 import type { Response } from 'effect/unstable/ai'
 
-import type { BunServices } from '@effect/platform-bun'
-
-import { answer } from '#index.ts'
-import { services } from './testing.ts'
-import { toolkit } from '#tools/index.ts'
+import { asked } from './testing.ts'
 
 import type { Activity } from '#activity.ts'
-import type { Handlers } from '#tools/index.ts'
-
-type Script = (turn: number) => Array<Response.StreamPartEncoded>
+import type { Script } from './testing.ts'
 
 const answered: Array<Response.StreamPartEncoded> = [
   { type: 'text-delta', id: 'text-1', delta: 'it printed ' },
@@ -33,54 +25,6 @@ const answering: Script = (turn) =>
 // cannot decode it and the agent reports nothing for the call itself.
 const misdialling: Script = (turn) =>
   turn === 0 ? [{ type: 'tool-call', id: 'call-1', name: 'bash', params: {} }] : answered
-
-const scriptedModel = (script: Script): Layer.Layer<LanguageModel.LanguageModel> =>
-  Layer.effect(
-    LanguageModel.LanguageModel,
-    Effect.gen(function* () {
-      const turns = yield* Ref.make(0)
-
-      return yield* LanguageModel.make({
-        generateText: () => Effect.succeed([]),
-        streamText: () =>
-          Stream.unwrap(
-            Effect.map(
-              Ref.getAndUpdate(turns, (turn) => turn + 1),
-              (turn) => Stream.fromIterable(script(turn)),
-            ),
-          ),
-      })
-    }),
-  )
-
-type Provided = BunServices.BunServices | LanguageModel.LanguageModel | Handlers
-
-const run = <A, E>(script: Script, program: Effect.Effect<A, E, Provided>): Promise<A> =>
-  Effect.runPromise(
-    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-    program.pipe(Effect.provide(Layer.mergeAll(scriptedModel(script), services(process.cwd())))),
-  )
-
-const asked = (script: Script, questions: ReadonlyArray<string>): Promise<Array<Activity>> =>
-  run(
-    script,
-    Effect.gen(function* () {
-      const tools = yield* toolkit
-      const session = yield* Chat.fromPrompt(Prompt.empty)
-
-      const seen: Array<Activity> = []
-
-      for (const question of questions) {
-        yield* Stream.runForEach(answer(session, tools, question), (activity) =>
-          Effect.sync(() => {
-            seen.push(activity)
-          }),
-        )
-      }
-
-      return seen
-    }),
-  )
 
 const asking = (...questions: ReadonlyArray<string>): Promise<Array<Activity>> =>
   asked(answering, questions)

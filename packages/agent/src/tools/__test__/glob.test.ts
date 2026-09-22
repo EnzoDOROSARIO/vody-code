@@ -1,13 +1,10 @@
 import { afterEach, expect, test } from 'bun:test'
+import { Effect, FileSystem } from 'effect'
 
 import { call, text, touch, workspace } from './harness.ts'
-import { removeWorkspaces } from '#__test__/testing.ts'
+import { onDisk, removeWorkspaces } from '#__test__/testing.ts'
 
 afterEach(removeWorkspaces)
-
-const shell = async (root: string, command: string): Promise<void> => {
-  await Bun.$`sh -c ${command}`.cwd(root).quiet()
-}
 
 test('glob finds files recursively, most recently modified first', async () => {
   const root = await workspace()
@@ -34,8 +31,7 @@ test('glob returns files, not the directories on the way to them', async () => {
 test('glob skips what git ignores', async () => {
   const root = await workspace()
 
-  await shell(root, 'git init -q')
-
+  // The workspace is already a repository, so git has a say here.
   await Bun.write(`${root}/.gitignore`, 'build/\n')
   await Bun.write(`${root}/build/generated.ts`, '')
   await Bun.write(`${root}/kept.ts`, '')
@@ -45,8 +41,29 @@ test('glob skips what git ignores', async () => {
   expect(outcome.result).toBe('kept.ts')
 })
 
-test('glob skips node_modules even where git has no say', async () => {
+test('glob skips node_modules even when git does not ignore it', async () => {
   const root = await workspace()
+
+  await Bun.write(`${root}/node_modules/dependency/index.ts`, '')
+  await Bun.write(`${root}/mine.ts`, '')
+
+  const outcome = await call(root, (tools) => tools.handle('glob', { pattern: '**/*.ts' }))
+
+  expect(outcome.result).toBe('mine.ts')
+})
+
+// A workspace need not be a repository at all, and glob asks git what is ignored, so
+// the always-excluded list has to hold without a repository to ask.
+test('glob skips node_modules where there is no repository to ask', async () => {
+  const root = await workspace()
+
+  await onDisk(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+
+      yield* fs.remove(`${root}/.git`, { recursive: true }).pipe(Effect.orDie)
+    }),
+  )
 
   await Bun.write(`${root}/node_modules/dependency/index.ts`, '')
   await Bun.write(`${root}/mine.ts`, '')
