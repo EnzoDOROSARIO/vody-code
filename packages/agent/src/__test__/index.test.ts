@@ -26,6 +26,15 @@ const answering: Script = (turn) =>
 const misdialling: Script = (turn) =>
   turn === 0 ? [{ type: 'tool-call', id: 'call-1', name: 'bash', params: {} }] : answered
 
+// A model whose stream carries the bookkeeping a real provider sends around the
+// text: which response this is, and where the block of prose starts and ends.
+const bookkeeping: Script = () => [
+  { type: 'response-metadata', id: 'response-1', modelId: 'scripted' },
+  { type: 'text-start', id: 'text-1' },
+  { type: 'text-delta', id: 'text-1', delta: 'hi' },
+  { type: 'text-end', id: 'text-1' },
+]
+
 const asking = (...questions: ReadonlyArray<string>): Promise<Array<Activity>> =>
   asked(answering, questions)
 
@@ -88,4 +97,13 @@ test('the loop stops on a turn with no tool call', async () => {
   // follows the last fragment of the second answer.
   expect(activities.filter((activity) => activity.type === 'tool-call')).toHaveLength(1)
   expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'hi', type: 'reply' })
+})
+
+// An Activity is something the agent did: a reply, a tool it reached for, what came
+// back. The rest of what a provider streams is the model's own bookkeeping, and it
+// is not reported, so a screen never has to know it exists.
+test('only replies, tool calls and tool results are reported', async () => {
+  expect(await asked(bookkeeping, ['say hi'])).toEqual([
+    { id: 'text-1', text: 'hi', type: 'reply' },
+  ])
 })

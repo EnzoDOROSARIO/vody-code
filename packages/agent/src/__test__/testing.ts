@@ -88,11 +88,13 @@ export const scriptedModel = (script: Script): Layer.Layer<LanguageModel.Languag
 /**
  * Put each question to the agent in turn, in one conversation, and collect every
  * Activity it reported along the way. The directory the tests were started in is the
- * Workspace, so the tools the script reaches for run against this repository.
+ * Workspace, so the tools the script reaches for run against this repository, through
+ * whatever `hooks` puts at the seam.
  */
 export const asked = (
   script: Script,
   questions: ReadonlyArray<string>,
+  hooks?: Hooks,
 ): Promise<Array<Activity>> => {
   const program = Effect.gen(function* () {
     const tools = yield* toolkit
@@ -111,8 +113,10 @@ export const asked = (
     return seen
   })
 
+  const provided = Layer.mergeAll(scriptedModel(script), services(process.cwd(), hooks))
+
   return Effect.runPromise(
     // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-    program.pipe(Effect.provide(Layer.mergeAll(scriptedModel(script), services(process.cwd())))),
+    program.pipe(Effect.provide(provided)),
   )
 }

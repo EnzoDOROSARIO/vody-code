@@ -13,6 +13,12 @@ Everything that follows one thing you typed, up to the agent's final answer. A t
 may reach for tools many times before it ends.
 _Avoid_: Round, exchange, iteration
 
+**Request**:
+What you typed to start the current Turn, exactly as you typed it. Every Turn has one;
+outside any Turn there is none. Never the conversation around it, and never the
+model's account of it — see ADR 0001.
+_Avoid_: Question, prompt, input, message
+
 **Activity**:
 One thing the agent did on the way to an answer, reported as it happens. An Activity
 is a report, never a rendering: what it looks like is the screen's business.

@@ -1,4 +1,4 @@
-import { Effect, Layer, Ref, Schema, Stream } from 'effect'
+import { Effect, Layer, Option, Ref, Schema, Stream } from 'effect'
 
 import type { FileSystem, Path } from 'effect'
 import type { AiError, Chat, LanguageModel, Prompt, Response, Toolkit } from 'effect/unstable/ai'
@@ -7,6 +7,7 @@ import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { ToolCall } from './activity.ts'
 import * as Codex from './codex.ts'
+import { Request } from './request.ts'
 import { toolkitLayer } from './tools/index.ts'
 
 import type { Activity } from './activity.ts'
@@ -64,16 +65,20 @@ const reported = (part: Response.StreamPart<Tools, 'opaque'>): Stream.Stream<Act
   return part.type === 'tool-result' ? Stream.succeed(part) : Stream.empty
 }
 
-export const answer = (
+// One call of the model and, if it reached for a tool, the calls after it. This is the
+// recursion `answer` wraps, kept apart from it so the Request is provided once around
+// the whole Turn: a continuation prompts the model with nothing, and one that provided
+// its own Request would replace the person's words with none halfway through.
+const respond = (
   chat: Chat.Chat,
   tools: Toolkit.WithHandler<Tools>,
-  question: Prompt.RawInput,
+  prompt: Prompt.RawInput,
 ): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
   Stream.unwrap(
     Effect.gen(function* () {
       const calledTools = yield* Ref.make(false)
 
-      const turn = chat.streamText({ prompt: question, toolkit: tools }).pipe(
+      const turn = chat.streamText({ prompt, toolkit: tools }).pipe(
         Stream.tap((part) =>
           part.type === 'tool-call' ? Ref.set(calledTools, true) : Effect.void,
         ),
@@ -87,13 +92,26 @@ export const answer = (
         Effect.map(
           Ref.get(calledTools),
           (reached): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
-            reached ? answer(chat, tools, []) : Stream.empty,
+            reached ? respond(chat, tools, []) : Stream.empty,
         ),
       )
 
       return Stream.concat(turn, rest)
     }),
   )
+
+/**
+ * Stream one Turn: everything the agent does in answer to what the person typed, up to
+ * and including its final reply. The words are the Turn's Request, and a `bash`
+ * handler, or anything else running inside the Turn, reads them from `Request` on the
+ * first call of the model and on every continuation after a tool result.
+ */
+export const answer = (
+  chat: Chat.Chat,
+  tools: Toolkit.WithHandler<Tools>,
+  request: string,
+): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
+  respond(chat, tools, request).pipe(Stream.provideService(Request, Option.some(request)))
 
 export const layer: Layer.Layer<
   LanguageModel.LanguageModel | Handlers,
