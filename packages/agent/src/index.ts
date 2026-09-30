@@ -7,11 +7,13 @@ import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { ToolCall } from './activity.ts'
 import * as Codex from './codex.ts'
+import { Judge } from './judge.ts'
 import { Request } from './request.ts'
 import { toolkitLayer } from './tools/index.ts'
 import * as WriteGate from './write-gate.ts'
 
 import type { Activity } from './activity.ts'
+import type { JudgeCredentialsRequired } from './judge.ts'
 import type { Handlers, Tools } from './tools/index.ts'
 
 export { ToolCall } from './activity.ts'
@@ -19,12 +21,13 @@ export { ToolCall } from './activity.ts'
 // The TUI now accounts for a failed tool call, so the errors a tool can return are
 // part of what this package hands out, not an internal of the toolkit.
 export {
+  ActRefused,
   CommandRefused,
   CommandTimedOut,
   FileIsBinary,
   FileNotRead,
   FileSystemRefused,
-  OutsidePerimeter,
+  JudgeDidNotAnswer,
   TextNotFound,
   TextNotUnique,
 } from './tools/index.ts'
@@ -36,6 +39,8 @@ export { toolkit } from './tools/index.ts'
 export { chat, InstructionsUnreadable } from './prompt.ts'
 
 export { Workspace } from './workspace.ts'
+
+export { JudgeCredentialsRequired } from './judge.ts'
 
 export type { Activity, Reply, ToolFailure, ToolResult } from './activity.ts'
 
@@ -119,16 +124,24 @@ export const answer = (
  * The handlers the agent runs, with the write Gate in front of them. The Gate goes in
  * under the toolkit, where the hooks are read, so no ungated set is ever built; and
  * this is the one gated set, which the package's tests build on as well, so the agent
- * cannot stop running the Gate without the Gate's own tests saying so.
+ * cannot stop running the Gate without the Gate's own tests saying so. The Judge the
+ * Gate consults is left open, for `layer` to give it the real one and the tests a
+ * scripted one.
  */
 export const handlers: Layer.Layer<
   Handlers,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Judge | Path.Path
 > = toolkitLayer.pipe(Layer.provide(WriteGate.layer))
 
+/**
+ * Everything the agent needs from this package. Both models need their credentials to
+ * build, so a missing sign-in or a missing Judge key stops the agent before it starts.
+ */
 export const layer: Layer.Layer<
   LanguageModel.LanguageModel | Handlers,
-  Codex.CodexAuthenticationRequired,
+  Codex.CodexAuthenticationRequired | JudgeCredentialsRequired,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
-> = Layer.mergeAll(handlers, Codex.layer.pipe(Layer.provide(FetchHttpClient.layer)))
+> = Layer.mergeAll(handlers.pipe(Layer.provide(Judge.layer)), Codex.layer).pipe(
+  Layer.provide(FetchHttpClient.layer),
+)

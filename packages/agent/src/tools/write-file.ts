@@ -4,7 +4,8 @@ import { Tool, Toolkit } from 'effect/unstable/ai'
 
 import { FileSystemRefused, refused } from './errors.ts'
 import { Files, modifiedAt } from './files.ts'
-import { OutsidePerimeter } from '#perimeter.ts'
+import { JudgeDidNotAnswer } from '#judge.ts'
+import { ActRefused } from '#verdict.ts'
 import { Workspace } from '#workspace.ts'
 
 export class FileNotRead extends Schema.TaggedError<FileNotRead>()('FileNotRead', {
@@ -21,9 +22,9 @@ const writeFile = Tool.make('write_file', {
   ].join(' '),
   parameters: Schema.Struct({ path: Schema.String, content: Schema.String }),
   success: Schema.String,
-  // `OutsidePerimeter` is the Gate's, not this tool's: it is declared here because a
-  // hook can only stop a tool with a failure the tool has declared.
-  failure: Schema.Union([FileNotRead, FileSystemRefused, OutsidePerimeter]),
+  // `ActRefused` and `JudgeDidNotAnswer` are the Gate's, not this tool's: they are
+  // declared here because a hook can only stop a tool with a failure the tool has declared.
+  failure: Schema.Union([FileNotRead, FileSystemRefused, ActRefused, JudgeDidNotAnswer]),
   failureMode: 'return',
 })
 

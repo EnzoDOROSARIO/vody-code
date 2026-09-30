@@ -1,11 +1,37 @@
 import { afterEach, expect, test } from 'bun:test'
-import { Effect, FileSystem, Predicate } from 'effect'
+import { Effect, FileSystem, Predicate, Queue } from 'effect'
 
-import { onDisk, outside, removeWorkspaces, temporary, workspace } from './testing.ts'
-import { OutsidePerimeter } from '#tools/index.ts'
-import { call } from '#tools/__test__/harness.ts'
+import type { Layer, Schema } from 'effect'
+
+import { answering, judging } from './judging.ts'
+import { judged, onDisk, outside, removeWorkspaces, temporary, workspace } from './testing.ts'
+import { ActRefused } from '#tools/index.ts'
+import { call, run } from '#tools/__test__/harness.ts'
+
+import type { Reply } from './judging.ts'
+import type { Judge } from '#judge.ts'
 
 afterEach(removeWorkspaces)
+
+// The Judge's answers about a write, question by question: how likely it serves the
+// Request, and how likely it affects the machine or other projects.
+const answers = (serves: number, affects: number): Reply =>
+  answering(
+    new Map([
+      ['serves_request', serves],
+      ['affects_machine_or_other_projects', affects],
+    ]),
+  )
+
+const judgedAs = (serves: number, affects: number): Layer.Layer<Judge> =>
+  judging([answers(serves, affects)])
+
+// A write past the root, into the fixture beside the working tree, with the Judge
+// answering as `judge` does.
+const writeOutside = (root: string, judge: Layer.Layer<Judge>) =>
+  run(judged(root, judge), (tools) =>
+    tools.handle('write_file', { path: '../outside/new.txt', content: 'hello' }),
+  )
 
 // Two links, one each way: `link` inside the tree leads to the outside fixture, and
 // `outside/into` leads back to `inside`. Where a write lands is what the Gate measures,
@@ -32,30 +58,154 @@ test('write_file inside the Perimeter happens exactly as it did', async () => {
   expect(await Bun.file(`${root}/inside/new.txt`).text()).toBe('hello')
 })
 
-test('write_file outside the Perimeter does not happen, and says where it would have landed', async () => {
+// A Judge that would refuse anything, and notes whenever it is asked: writes inside
+// that went ahead without a single question show the Judge was never consulted.
+test('a write inside the Perimeter never reaches the Judge', async () => {
   const root = await workspace()
 
-  const outcome = await call(root, (tools) =>
-    tools.handle('write_file', { path: `${root}/../outside/new.txt`, content: 'hello' }),
+  const asked = Effect.runSync(Queue.unbounded<Schema.Json>())
+
+  const refusing = judging([answers(0, 1)], asked)
+
+  const wrote = await run(judged(root, refusing), (tools) =>
+    tools.handle('write_file', { path: 'inside/new.txt', content: 'hello' }),
   )
 
-  expect(outcome.isFailure).toBe(true)
-  expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
-  // The tag is the one word of the failure the model can match on.
-  expect(Predicate.isTagged(outcome.result, 'OutsidePerimeter')).toBe(true)
-  // The refusal is the model's only account of what happened, so it names the path as
-  // written, where that really leads, and the tree it may change instead.
-  expect(outcome.result).toMatchObject({
-    path: `${outside(root)}/new.txt`,
-    reason: `write_file will not write ${root}/../outside/new.txt: it would land at ${outside(root)}/new.txt, outside the working tree at ${root} — only files inside that tree can be changed`,
-  })
-  expect(await Bun.file(`${root}/../outside/new.txt`).exists()).toBe(false)
+  const edited = await run(judged(root, refusing), (tools) =>
+    tools.handle('edit_file', { path: 'inside/keep.txt', old_text: 'kept', new_text: 'edited' }),
+  )
+
+  expect(wrote.isFailure).toBe(false)
+  expect(edited.isFailure).toBe(false)
+  expect(await Bun.file(`${root}/inside/keep.txt`).text()).toBe('edited')
+  expect(Effect.runSync(Queue.size(asked))).toBe(0)
 })
 
-test('edit_file outside the Perimeter leaves the file as it was', async () => {
+test('a write outside the Perimeter that serves the Request goes ahead, however much it touches', async () => {
   const root = await workspace()
 
-  const outcome = await call(root, (tools) =>
+  const outcome = await writeOutside(root, judgedAs(0.9, 0.8))
+
+  expect(outcome.isFailure).toBe(false)
+  expect(await Bun.file(`${outside(root)}/new.txt`).text()).toBe('hello')
+})
+
+test('a write outside the Perimeter unrelated to the Request does not happen, and says why', async () => {
+  const root = await workspace()
+
+  const outcome = await writeOutside(root, judgedAs(0.1, 0.8))
+
+  expect(outcome.isFailure).toBe(true)
+  expect(outcome.result).toBeInstanceOf(ActRefused)
+  // The refusal is the only account anyone gets of it, so it names the path as written,
+  // where that leads, and every axis that tripped with its answer and its line.
+  expect(outcome.result).toMatchObject({
+    tripped: [
+      { axis: 'serves_request', probability: 0.1, line: 'low', threshold: 0.3 },
+      {
+        axis: 'affects_machine_or_other_projects',
+        probability: 0.8,
+        line: 'high',
+        threshold: 0.7,
+      },
+    ],
+    reason: `write_file will not write ../outside/new.txt: it would land at ${outside(root)}/new.txt, outside the working tree at ${root}, and the Judge's answers refuse it (serves_request at 0.1, below 0.3; affects_machine_or_other_projects at 0.8, at or above 0.7). The refusal is final, so do not try the same write again: do the work another way, or tell the person what you meant to write and why`,
+  })
+  // What the model is handed is the refusal encoded, and it carries the same numbers.
+  expect(Predicate.isTagged(outcome.encodedResult, 'ActRefused')).toBe(true)
+  expect(outcome.encodedResult).toMatchObject({
+    tripped: [
+      { axis: 'serves_request', probability: 0.1, line: 'low', threshold: 0.3 },
+      {
+        axis: 'affects_machine_or_other_projects',
+        probability: 0.8,
+        line: 'high',
+        threshold: 0.7,
+      },
+    ],
+  })
+  expect(await Bun.file(`${outside(root)}/new.txt`).exists()).toBe(false)
+})
+
+test('a write outside the Perimeter that harms nothing goes ahead even unrequested', async () => {
+  const root = await workspace()
+
+  const outcome = await writeOutside(root, judgedAs(0.1, 0.2))
+
+  expect(outcome.isFailure).toBe(false)
+  expect(await Bun.file(`${outside(root)}/new.txt`).text()).toBe('hello')
+})
+
+test('a write in the absolute band is refused even when it is plainly what was asked', async () => {
+  const root = await workspace()
+
+  const outcome = await writeOutside(root, judgedAs(1, 0.97))
+
+  expect(outcome.isFailure).toBe(true)
+  // Only the band tripped: the alignment was not low, so it took no part.
+  expect(outcome.result).toMatchObject({
+    tripped: [
+      {
+        axis: 'affects_machine_or_other_projects',
+        probability: 0.97,
+        line: 'absolute',
+        threshold: 0.95,
+      },
+    ],
+    reason: expect.stringContaining(
+      '(affects_machine_or_other_projects at 0.97, at or above the absolute band of 0.95)',
+    ),
+  })
+  expect(await Bun.file(`${outside(root)}/new.txt`).exists()).toBe(false)
+})
+
+test('a write in the absolute band and unrequested names the low alignment beside the band', async () => {
+  const root = await workspace()
+
+  const outcome = await writeOutside(root, judgedAs(0.2, 0.99))
+
+  expect(outcome.result).toMatchObject({
+    tripped: [
+      { axis: 'serves_request', probability: 0.2, line: 'low', threshold: 0.3 },
+      {
+        axis: 'affects_machine_or_other_projects',
+        probability: 0.99,
+        line: 'absolute',
+        threshold: 0.95,
+      },
+    ],
+  })
+})
+
+// Each line with an answer just below it, exactly on it, and just above it, and each of
+// them decided both ways across the three: a comparison off by one flips exactly one.
+// The alignment's line is crossed with a danger high enough to count, the danger's with
+// an alignment low enough to let it, and the band's with an alignment as high as it goes.
+const boundaries: ReadonlyArray<readonly [string, number, number, boolean]> = [
+  ['an alignment just below its line refuses', 0.29, 0.7, false],
+  ['an alignment exactly on its line allows', 0.3, 0.7, true],
+  ['an alignment just above its line allows', 0.31, 0.7, true],
+  ['a danger just below high allows', 0.1, 0.69, true],
+  ['a danger exactly at high refuses', 0.1, 0.7, false],
+  ['a danger just above high refuses', 0.1, 0.71, false],
+  ['a danger just below the absolute band allows what was asked', 1, 0.94, true],
+  ['a danger exactly at the absolute band refuses what was asked', 1, 0.95, false],
+  ['a danger just above the absolute band refuses what was asked', 1, 0.96, false],
+]
+
+test.each(boundaries)('%s', async (_, serves, affects, allowed) => {
+  const root = await workspace()
+
+  const outcome = await writeOutside(root, judgedAs(serves, affects))
+
+  expect(outcome.isFailure).toBe(!allowed)
+  expect(await Bun.file(`${outside(root)}/new.txt`).exists()).toBe(allowed)
+})
+
+test('edit_file outside the Perimeter, refused, leaves the file as it was', async () => {
+  const root = await workspace()
+
+  const outcome = await run(judged(root, judgedAs(0, 0.9)), (tools) =>
     tools.handle('edit_file', {
       path: '../outside/secret.txt',
       old_text: 'secret',
@@ -64,104 +214,124 @@ test('edit_file outside the Perimeter leaves the file as it was', async () => {
   )
 
   expect(outcome.isFailure).toBe(true)
-  expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
+  expect(outcome.result).toBeInstanceOf(ActRefused)
   expect(outcome.result).toMatchObject({
     reason: expect.stringContaining(
-      `edit_file will not write ../outside/secret.txt: it would land at`,
+      `edit_file will not write ../outside/secret.txt: it would land at ${outside(root)}/secret.txt`,
     ),
   })
-  expect(await Bun.file(`${root}/../outside/secret.txt`).text()).toBe('secret')
+  expect(await Bun.file(`${outside(root)}/secret.txt`).text()).toBe('secret')
 })
 
-test('write_file into the repository’s own metadata is refused', async () => {
+test('edit_file outside the Perimeter, allowed, edits the file', async () => {
   const root = await workspace()
 
-  const outcome = await call(root, (tools) =>
+  const outcome = await run(judged(root, judgedAs(0.9, 0.1)), (tools) =>
+    tools.handle('edit_file', {
+      path: '../outside/secret.txt',
+      old_text: 'secret',
+      new_text: 'changed',
+    }),
+  )
+
+  expect(outcome.isFailure).toBe(false)
+  expect(await Bun.file(`${outside(root)}/secret.txt`).text()).toBe('changed')
+})
+
+test('write_file into the repository’s own metadata is judged, and refused when the Judge says so', async () => {
+  const root = await workspace()
+
+  const outcome = await run(judged(root, judgedAs(0.1, 0.99)), (tools) =>
     tools.handle('write_file', { path: '.git/hooks/pre-commit', content: '#!/bin/sh\nrm -rf /' }),
   )
 
   expect(outcome.isFailure).toBe(true)
-  expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
-  expect(outcome.result).toMatchObject({ path: `${root}/.git/hooks/pre-commit` })
+  expect(outcome.result).toBeInstanceOf(ActRefused)
+  expect(outcome.result).toMatchObject({
+    reason: expect.stringContaining(`it would land at ${root}/.git/hooks/pre-commit`),
+  })
   expect(await Bun.file(`${root}/.git/hooks/pre-commit`).exists()).toBe(false)
 })
 
 // In a linked worktree `.git` is a file naming the repository, so the entry itself is
 // as much the repository's as anything under it.
-test('write_file over the metadata entry itself is refused', async () => {
+test('write_file over the metadata entry itself is judged', async () => {
   const root = await workspace()
 
-  const outcome = await call(root, (tools) =>
+  const outcome = await run(judged(root, judgedAs(0.1, 0.99)), (tools) =>
     tools.handle('write_file', { path: '.git', content: 'gitdir: /elsewhere' }),
   )
 
   expect(outcome.isFailure).toBe(true)
-  expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
+  expect(outcome.result).toBeInstanceOf(ActRefused)
 })
 
-test('edit_file inside the repository’s own metadata is refused', async () => {
+test('edit_file inside the repository’s own metadata is judged', async () => {
   const root = await workspace()
 
-  const outcome = await call(root, (tools) =>
+  const outcome = await run(judged(root, judgedAs(0.1, 0.99)), (tools) =>
     tools.handle('edit_file', { path: '.git/HEAD', old_text: 'main', new_text: 'other' }),
   )
 
   expect(outcome.isFailure).toBe(true)
-  expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
+  expect(outcome.result).toBeInstanceOf(ActRefused)
   expect(await Bun.file(`${root}/.git/HEAD`).text()).toBe('ref: refs/heads/main\n')
 })
 
-test('write_file through a link inside the tree that leads outside is refused', async () => {
+test('write_file through a link inside the tree that leads outside is judged where it lands', async () => {
   const root = await workspace()
 
   await linked(root)
 
-  const outcome = await call(root, (tools) =>
+  const outcome = await run(judged(root, judgedAs(0.1, 0.99)), (tools) =>
     tools.handle('write_file', { path: 'link/new.txt', content: 'hello' }),
   )
 
   expect(outcome.isFailure).toBe(true)
-  expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
-  expect(outcome.result).toMatchObject({ path: `${outside(root)}/new.txt` })
-  expect(await Bun.file(`${root}/../outside/new.txt`).exists()).toBe(false)
+  expect(outcome.result).toMatchObject({
+    reason: expect.stringContaining(`it would land at ${outside(root)}/new.txt`),
+  })
+  expect(await Bun.file(`${outside(root)}/new.txt`).exists()).toBe(false)
 })
 
-test('edit_file through a link inside the tree that leads outside is refused', async () => {
+test('edit_file through a link inside the tree that leads outside is judged', async () => {
   const root = await workspace()
 
   await linked(root)
 
-  const outcome = await call(root, (tools) =>
+  const outcome = await run(judged(root, judgedAs(0.1, 0.99)), (tools) =>
     tools.handle('edit_file', { path: 'link/secret.txt', old_text: 'secret', new_text: 'x' }),
   )
 
   expect(outcome.isFailure).toBe(true)
-  expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
-  expect(await Bun.file(`${root}/../outside/secret.txt`).text()).toBe('secret')
+  expect(outcome.result).toBeInstanceOf(ActRefused)
+  expect(await Bun.file(`${outside(root)}/secret.txt`).text()).toBe('secret')
 })
 
 // The directories between the link and the file do not exist yet, so the walk to the
 // nearest existing ancestor has to pass them on its way to the link.
-test('write_file below a link that leads outside is refused however deep the new path', async () => {
+test('write_file below a link that leads outside is judged however deep the new path', async () => {
   const root = await workspace()
 
   await linked(root)
 
-  const outcome = await call(root, (tools) =>
+  const outcome = await run(judged(root, judgedAs(0.1, 0.99)), (tools) =>
     tools.handle('write_file', { path: 'link/deep/er/new.txt', content: 'hello' }),
   )
 
   expect(outcome.isFailure).toBe(true)
-  expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
-  expect(await Bun.file(`${root}/../outside/deep/er/new.txt`).exists()).toBe(false)
+  expect(outcome.result).toMatchObject({
+    reason: expect.stringContaining(`it would land at ${outside(root)}/deep/er/new.txt`),
+  })
+  expect(await Bun.file(`${outside(root)}/deep/er/new.txt`).exists()).toBe(false)
 })
 
-test('write_file through a link outside the tree that leads inside is allowed', async () => {
+test('write_file through a link outside the tree that leads inside is allowed unasked', async () => {
   const root = await workspace()
 
   await linked(root)
 
-  const outcome = await call(root, (tools) =>
+  const outcome = await run(judged(root, judgedAs(0, 1)), (tools) =>
     tools.handle('write_file', { path: '../outside/into/new.txt', content: 'hello' }),
   )
 
@@ -169,12 +339,12 @@ test('write_file through a link outside the tree that leads inside is allowed', 
   expect(await Bun.file(`${root}/inside/new.txt`).text()).toBe('hello')
 })
 
-test('edit_file through a link outside the tree that leads inside is allowed', async () => {
+test('edit_file through a link outside the tree that leads inside is allowed unasked', async () => {
   const root = await workspace()
 
   await linked(root)
 
-  const outcome = await call(root, (tools) =>
+  const outcome = await run(judged(root, judgedAs(0, 1)), (tools) =>
     tools.handle('edit_file', {
       path: '../outside/into/keep.txt',
       old_text: 'kept',
@@ -197,32 +367,44 @@ test('write_file to a path whose directories do not exist yet is allowed inside 
   expect(await Bun.file(`${root}/inside/deep/er/new.txt`).text()).toBe('hello')
 })
 
-test('with no repository above the Workspace, write_file is refused everywhere in it', async () => {
+test('with no repository above the Workspace, every write is judged, and one the Judge allows happens', async () => {
   const directory = await onDisk(temporary)
 
-  const outcome = await call(directory, (tools) =>
+  const outcome = await run(judged(directory, judgedAs(0.9, 0.1)), (tools) =>
+    tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
+  )
+
+  expect(outcome.isFailure).toBe(false)
+  expect(await Bun.file(`${directory}/new.txt`).text()).toBe('hello')
+})
+
+test('with no repository above the Workspace, a write the Judge refuses says there is no working tree', async () => {
+  const directory = await onDisk(temporary)
+
+  const outcome = await run(judged(directory, judgedAs(0.1, 0.8)), (tools) =>
     tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
   )
 
   expect(outcome.isFailure).toBe(true)
-  expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
   expect(outcome.result).toMatchObject({
-    reason: `write_file will not write new.txt: no git working tree could be found from ${directory}, so there is nothing here the agent may change — nothing can be written until there is`,
+    reason: expect.stringContaining(
+      `new.txt, outside any working tree, since none could be found from ${directory}, and the Judge's answers refuse it`,
+    ),
   })
   expect(await Bun.file(`${directory}/new.txt`).exists()).toBe(false)
 })
 
-test('with no repository above the Workspace, edit_file is refused too', async () => {
+test('with no repository above the Workspace, edit_file is judged too', async () => {
   const directory = await onDisk(temporary)
 
   await Bun.write(`${directory}/edit.txt`, 'one')
 
-  const outcome = await call(directory, (tools) =>
+  const outcome = await run(judged(directory, judgedAs(0.1, 0.8)), (tools) =>
     tools.handle('edit_file', { path: 'edit.txt', old_text: 'one', new_text: 'two' }),
   )
 
   expect(outcome.isFailure).toBe(true)
-  expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
+  expect(outcome.result).toBeInstanceOf(ActRefused)
   expect(await Bun.file(`${directory}/edit.txt`).text()).toBe('one')
 })
 

@@ -1,29 +1,24 @@
-import { Context, Effect, FileSystem, Layer, Option, Path, Schema } from 'effect'
+import { Context, Effect, FileSystem, Layer, Option, Path } from 'effect'
 
 import type { PlatformError } from 'effect'
 
 import { Workspace } from './workspace.ts'
 
 /**
- * A write refused at the Gate because it would land outside the Perimeter, which is
- * where every write lands when the Workspace is in no repository at all. `path` is
- * where it would really have landed, links resolved; `reason` is what the model is
- * told, and what the transcript shows.
+ * Where a path really leads, whether that is inside the Perimeter, and whether it is in
+ * the repository's own metadata, which lies under the root and is still not inside.
  */
-export class OutsidePerimeter extends Schema.TaggedError<OutsidePerimeter>()('OutsidePerimeter', {
-  path: Schema.String,
-  reason: Schema.String,
-}) {}
-
-/** Where a path really leads, and whether that is inside the Perimeter. */
 export type Containment = {
   readonly inside: boolean
+  readonly metadata: boolean
   readonly path: string
 }
 
-// Whether `child` sits under `parent`. Only strictly under: a target that is the
-// directory itself is not a file that could be written there.
-const under = (parent: string, child: string, separator: string): boolean =>
+/**
+ * Whether `child` sits under `parent`. Only strictly under: a target that is the
+ * directory itself is not a file that could be written there.
+ */
+export const under = (parent: string, child: string, separator: string): boolean =>
   child.startsWith(parent + separator)
 
 /**
@@ -63,50 +58,93 @@ export class Perimeter extends Context.Service<
 
         const workspace = yield* Workspace
 
-        // The repository's own metadata is not part of the working tree: a hook planted
-        // there runs later, past every Gate. That goes for the entry itself as much as
-        // for what is under it, since in a linked worktree `.git` is a file.
-        const metadata = (tree: string, real: string): boolean => {
-          const entry = path.join(tree, '.git')
+        // Whether `real` is `directory` itself or lies anywhere under it.
+        const within = (directory: string, real: string): boolean =>
+          real === directory || under(directory, real, path.sep)
 
-          return real === entry || under(entry, real, path.sep)
-        }
-
-        // Whether git would take `suspect` for a repository's metadata, after its own
-        // is_git_directory: a `HEAD` there, and `objects` and `refs` beside it, or in the
-        // common directory named by the `commondir` file a linked worktree's metadata has.
-        const repository = (suspect: string): Effect.Effect<boolean, PlatformError.PlatformError> =>
+        // Where git keeps the parts a repository's metadata shares: the directory named
+        // by the `commondir` file a linked worktree's metadata has, or else the metadata
+        // itself.
+        const common = (suspect: string): Effect.Effect<string, PlatformError.PlatformError> =>
           Effect.gen(function* () {
             const shared = path.join(suspect, 'commondir')
 
-            const common = (yield* fs.exists(shared))
+            return (yield* fs.exists(shared))
               ? path.resolve(suspect, (yield* fs.readFileString(shared)).trim())
               : suspect
+          })
+
+        // Whether git would take `suspect` for a repository's metadata, after its own
+        // is_git_directory: a `HEAD` there, and `objects` and `refs` in its common
+        // directory.
+        const repository = (suspect: string): Effect.Effect<boolean, PlatformError.PlatformError> =>
+          Effect.gen(function* () {
+            const shared = yield* common(suspect)
 
             const present = yield* Effect.forEach(
-              [path.join(suspect, 'HEAD'), path.join(common, 'objects'), path.join(common, 'refs')],
+              [path.join(suspect, 'HEAD'), path.join(shared, 'objects'), path.join(shared, 'refs')],
               (required) => fs.exists(required),
             )
 
             return present.every((found) => found)
           })
 
-        // Whether a `.git` file names a repository, as a linked worktree's or a
-        // submodule's does: a `gitdir:` line, resolved against the file's own directory.
-        const linked = (
+        // The metadata a `.git` file names, as a linked worktree's or a submodule's does:
+        // a `gitdir:` line, resolved against the file's own directory. None for a file
+        // with no such line.
+        const named = (
           directory: string,
           file: string,
-        ): Effect.Effect<boolean, PlatformError.PlatformError> =>
+        ): Effect.Effect<Option.Option<string>, PlatformError.PlatformError> =>
           fs.readFileString(file).pipe(
-            Effect.flatMap((content) => {
+            Effect.map((content) => {
               const line = content.trimEnd()
               const prefix = 'gitdir: '
 
               return line.startsWith(prefix)
-                ? repository(path.resolve(directory, line.slice(prefix.length)))
-                : Effect.succeed(false)
+                ? Option.some(path.resolve(directory, line.slice(prefix.length)))
+                : Option.none()
             }),
           )
+
+        // Whether a `.git` file names a repository.
+        const linked = (
+          directory: string,
+          file: string,
+        ): Effect.Effect<boolean, PlatformError.PlatformError> =>
+          named(directory, file).pipe(
+            Effect.flatMap(
+              Option.match({ onNone: () => Effect.succeed(false), onSome: repository }),
+            ),
+          )
+
+        // Every directory that is the tree's own metadata rather than part of the tree,
+        // by its real path, since that is the form a landing path is in. A hook planted in
+        // any of them runs later, past every Gate. It is the `.git` entry, and in a linked
+        // worktree, whose `.git` is only a file, it is also the metadata that file names
+        // and the common directory that metadata shares with the main checkout, where the
+        // hooks are.
+        const metadataOf = (
+          tree: string,
+        ): Effect.Effect<ReadonlyArray<string>, PlatformError.PlatformError> =>
+          Effect.gen(function* () {
+            const entry = path.join(tree, '.git')
+
+            const gitdir =
+              (yield* fs.stat(entry)).type === 'Directory'
+                ? Option.none<string>()
+                : yield* named(tree, entry)
+
+            const beyond = yield* Effect.forEach(Option.toArray(gitdir), (directory) =>
+              Effect.map(common(directory), (shared) => [directory, shared]),
+            )
+
+            const real = yield* Effect.forEach([entry, ...beyond.flat()], (directory) =>
+              fs.realPath(directory),
+            )
+
+            return [entry, ...real]
+          })
 
         // What the `.git` entry in `directory` says of it, by git's reading: a working tree
         // starts here when the entry is a repository or a file naming one; a file naming
@@ -162,14 +200,27 @@ export class Perimeter extends Context.Service<
 
         // The walk starts from the real path because that is the form a target is
         // resolved to before the two are compared. A Workspace inside a repository's
-        // `.git` is in no working tree, which is git's answer there too, so it has no
+        // metadata is in no working tree, which is git's answer there too, so it has no
         // Perimeter rather than the tree whose metadata it is in.
-        const root = yield* fs.realPath(workspace).pipe(
+        const found = yield* fs.realPath(workspace).pipe(
           Effect.flatMap((real) =>
-            enclosing(real).pipe(Effect.map(Option.filter((tree) => !metadata(tree, real)))),
+            enclosing(real).pipe(
+              Effect.flatMap((tree) =>
+                Effect.transposeOption(
+                  Option.map(tree, (directory) =>
+                    Effect.map(metadataOf(directory), (hidden) => ({ tree: directory, hidden })),
+                  ),
+                ),
+              ),
+              Effect.map(
+                Option.filter(({ hidden }) => !hidden.some((directory) => within(directory, real))),
+              ),
+            ),
           ),
           Effect.catch(() => Effect.succeedNone),
         )
+
+        const root = Option.map(found, ({ tree }) => tree)
 
         // The nearest existing ancestor is found by asking downwards from the target's
         // own directory: a directory that cannot be resolved cannot be written into by
@@ -193,10 +244,16 @@ export class Perimeter extends Context.Service<
           )
         }
 
-        const inside = (real: string): boolean =>
-          Option.match(root, {
-            onNone: () => false,
-            onSome: (tree) => under(tree, real, path.sep) && !metadata(tree, real),
+        // Whether a path is inside, and whether it is the metadata, which lies under the
+        // root and is still kept out.
+        const where = (real: string): Omit<Containment, 'path'> =>
+          Option.match(found, {
+            onNone: () => ({ inside: false, metadata: false }),
+            onSome: ({ hidden, tree }) => {
+              const metadata = hidden.some((directory) => within(directory, real))
+
+              return { inside: under(tree, real, path.sep) && !metadata, metadata }
+            },
           })
 
         // Stryker disable next-line StringLiteral: the name only labels the span, which
@@ -204,7 +261,7 @@ export class Perimeter extends Context.Service<
         const contains = Effect.fn('Perimeter.contains')(function* (target: string) {
           const real = yield* landing(path.dirname(target), [path.basename(target)])
 
-          return { inside: inside(real), path: real }
+          return { ...where(real), path: real }
         })
 
         return Perimeter.of({ contains, root })

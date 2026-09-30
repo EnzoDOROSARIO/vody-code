@@ -68,7 +68,7 @@ test('a Workspace in no repository has no Perimeter, and nothing is inside it', 
   expect(found).toEqual(Option.none())
   // Only the answer: the temporary directory sits behind a link on macOS, so the path it
   // reports is the real one, and pinning that here would repeat what `landing` does.
-  expect(answer).toMatchObject({ inside: false })
+  expect(answer).toMatchObject({ inside: false, metadata: false })
 })
 
 test('Containment answers of the real path, and a target need not exist to have one', async () => {
@@ -79,7 +79,7 @@ test('Containment answers of the real path, and a target need not exist to have 
     Effect.flatMap(Perimeter, (perimeter) => perimeter.contains(`${root}/inside/not/yet/new.txt`)),
   )
 
-  expect(answer).toEqual({ inside: true, path: `${root}/inside/not/yet/new.txt` })
+  expect(answer).toEqual({ inside: true, metadata: false, path: `${root}/inside/not/yet/new.txt` })
 })
 
 test('a directory beside the working tree that shares its name as a prefix is outside', async () => {
@@ -90,7 +90,7 @@ test('a directory beside the working tree that shares its name as a prefix is ou
     Effect.flatMap(Perimeter, (perimeter) => perimeter.contains(`${root}-beside/new.txt`)),
   )
 
-  expect(answer).toEqual({ inside: false, path: `${root}-beside/new.txt` })
+  expect(answer).toEqual({ inside: false, metadata: false, path: `${root}-beside/new.txt` })
 })
 
 // `.git` is out; `.gitignore` is a file in the tree that happens to start the same way.
@@ -109,6 +109,8 @@ test('the repository’s metadata is outside and a file named like it is not', a
   )
 
   expect(answers.map((answer) => answer.inside)).toEqual([false, false, true])
+  // Outside for being the metadata, which is what the Gate tells the Judge.
+  expect(answers.map((answer) => answer.metadata)).toEqual([true, true, false])
 })
 
 test('a link is followed to where the write would land, then measured there', async () => {
@@ -130,6 +132,7 @@ test('a link is followed to where the write would land, then measured there', as
 
   expect(answer).toEqual({
     inside: false,
+    metadata: false,
     path: `${outside(root)}/below/new.txt`,
   })
 })
@@ -215,6 +218,25 @@ test('a Workspace in the repository’s own `.git`, or that is it, has no Perime
   expect(found).toEqual([Option.none(), Option.none()])
 })
 
+// `git init --separate-git-dir` can put the metadata anywhere, the tree itself included,
+// and leave only a `.git` file naming it. That metadata is still the tree's, and a
+// Workspace inside it is as much in no working tree as one inside a `.git` directory,
+// though the `.git` entry itself is somewhere else.
+test('a Workspace in the metadata a `.git` file names, kept inside the tree, has no Perimeter', async () => {
+  // By its real path, since the temporary directory sits behind a link on macOS.
+  const tree = await onDisk(
+    Effect.flatMap(temporary, (directory) =>
+      Effect.flatMap(FileSystem.FileSystem, (fs) => fs.realPath(directory)),
+    ).pipe(Effect.orDie),
+  )
+
+  await repositoryAt(`${tree}/meta`)
+  await Bun.write(`${tree}/.git`, 'gitdir: meta\n')
+
+  expect(await rootFrom(tree)).toEqual(Option.some(tree))
+  expect(await rootFrom(`${tree}/meta/refs`)).toEqual(Option.none())
+})
+
 // A Workspace reached through a link is resolved before the walk, so the root is the
 // tree's real path, the one every target is resolved to before it is measured.
 test('a Workspace reached through a link has the Perimeter of where it really is', async () => {
@@ -233,7 +255,7 @@ test('a Workspace reached through a link has the Perimeter of where it really is
   )
 
   expect(found).toEqual(Option.some(root))
-  expect(answer).toEqual({ inside: true, path: `${root}/inside/new.txt` })
+  expect(answer).toEqual({ inside: true, metadata: false, path: `${root}/inside/new.txt` })
   expect(await rootFrom(`${alias}/.git`)).toEqual(Option.none())
 })
 

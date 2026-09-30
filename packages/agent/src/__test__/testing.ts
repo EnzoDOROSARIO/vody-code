@@ -5,11 +5,13 @@ import type { Path } from 'effect'
 import type { Response } from 'effect/unstable/ai'
 import type { ChildProcessSpawner } from 'effect/unstable/process'
 
+import { allowing } from './judging.ts'
 import { answer, handlers } from '#index.ts'
 import { Hooks, toolkit, toolkitLayer } from '#tools/index.ts'
 import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
+import type { Judge } from '#judge.ts'
 import type { Handlers } from '#tools/index.ts'
 
 // `tools` on the platform, with `workspace` as the Workspace.
@@ -26,18 +28,31 @@ const mounted = (
     Layer.provideMerge(Layer.succeed(Workspace, workspace)),
   )
 
+/**
+ * The agent's own gated handlers, the very layer it mounts, with `judge` as the Judge
+ * its Gate consults. The Judge is the one thing substituted, and it is the real Judge,
+ * budget and retry and all, over a scripted decision model: see `judging`.
+ */
+export const judged = (
+  workspace: string,
+  judge: Layer.Layer<Judge>,
+): Layer.Layer<BunServices.BunServices | Handlers> =>
+  mounted(handlers.pipe(Layer.provide(judge)), workspace)
+
 // Hooks are read where the toolkit layer is built, so they go in under it. A test that
 // passes none gets `handlers`, the very layer the agent mounts, so every test entry point
 // in the package runs through the Gate the agent runs, and an agent that stopped running
 // it would fail the Gate's tests; a test that passes its own hooks takes the seam over.
+// The Judge behind that Gate finds everything it is asked about requested and harmless,
+// so a test that does not care what is judged sees a write outside go ahead, and none of
+// them reaches the network.
 export const services = (
   workspace: string,
   hooks?: Hooks,
 ): Layer.Layer<BunServices.BunServices | Handlers> =>
-  mounted(
-    hooks === undefined ? handlers : toolkitLayer.pipe(Layer.provide(Layer.succeed(Hooks, hooks))),
-    workspace,
-  )
+  hooks === undefined
+    ? judged(workspace, allowing)
+    : mounted(toolkitLayer.pipe(Layer.provide(Layer.succeed(Hooks, hooks))), workspace)
 
 // The toolkit with nothing provided at the seam, so what the tools run through is the
 // reference's own default. The agent never builds this — `handlers` always puts the Gate

@@ -28,8 +28,10 @@ export { Hooks } from './hooks.ts'
 export { FileIsBinary } from './read-file.ts'
 
 // Raised by the Gate in front of write_file and edit_file rather than by either tool,
-// but it is one of the answers they can give, so it belongs in the same vocabulary.
-export { OutsidePerimeter } from '#perimeter.ts'
+// but they are answers those tools can give, so they belong in the same vocabulary.
+export { JudgeDidNotAnswer } from '#judge.ts'
+
+export { ActRefused } from '#verdict.ts'
 
 export { toolkit } from './toolkit.ts'
 
