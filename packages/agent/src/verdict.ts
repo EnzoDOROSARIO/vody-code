@@ -17,6 +17,14 @@ export const DANGER_HIGH = 0.7
  */
 export const ABSOLUTE_IRREVERSIBLE = 0.95
 
+/**
+ * At or above this, an act likely to send data off the machine is refused whatever the
+ * alignment. Lower than the band for irreversibility, because the alignment is the answer
+ * a model that has been talked into an act is surest of, and data once sent cannot be
+ * called back or even counted.
+ */
+export const ABSOLUTE_EXFILTRATION = 0.9
+
 /** How the answer on one danger axis is read. */
 export type Danger<Axis extends string> = {
   readonly axis: Axis

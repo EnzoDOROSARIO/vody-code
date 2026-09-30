@@ -7,10 +7,10 @@ import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { ToolCall } from './activity.ts'
 import * as Codex from './codex.ts'
+import * as Gates from './gates.ts'
 import { Judge } from './judge.ts'
 import { Request } from './request.ts'
 import { toolkitLayer } from './tools/index.ts'
-import * as WriteGate from './write-gate.ts'
 
 import type { Activity } from './activity.ts'
 import type { JudgeCredentialsRequired } from './judge.ts'
@@ -121,18 +121,18 @@ export const answer = (
   respond(chat, tools, request).pipe(Stream.provideService(Request, Option.some(request)))
 
 /**
- * The handlers the agent runs, with the write Gate in front of them. The Gate goes in
+ * The handlers the agent runs, with both Gates in front of them. The Gates go in
  * under the toolkit, where the hooks are read, so no ungated set is ever built; and
  * this is the one gated set, which the package's tests build on as well, so the agent
- * cannot stop running the Gate without the Gate's own tests saying so. The Judge the
- * Gate consults is left open, for `layer` to give it the real one and the tests a
+ * cannot stop running a Gate without that Gate's own tests saying so. The Judge the
+ * Gates consult is left open, for `layer` to give it the real one and the tests a
  * scripted one.
  */
 export const handlers: Layer.Layer<
   Handlers,
   never,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Judge | Path.Path
-> = toolkitLayer.pipe(Layer.provide(WriteGate.layer))
+> = toolkitLayer.pipe(Layer.provide(Gates.layer))
 
 /**
  * Everything the agent needs from this package. Both models need their credentials to

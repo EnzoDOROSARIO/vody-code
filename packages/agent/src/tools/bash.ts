@@ -3,6 +3,8 @@ import { Duration, Effect, FileSystem, Schema, Stream } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
+import { JudgeDidNotAnswer } from '#judge.ts'
+import { ActRefused } from '#verdict.ts'
 import { Workspace } from '#workspace.ts'
 
 const MAX_OUTPUT_CHARACTERS = 30_000
@@ -129,7 +131,9 @@ const bash = Tool.make('bash', {
     timeout_seconds: Schema.optionalKey(Seconds),
   }),
   success: Schema.String,
-  failure: Schema.Union([CommandRefused, CommandTimedOut]),
+  // `ActRefused` and `JudgeDidNotAnswer` are the command Gate's, not this tool's: they
+  // are declared here because a hook can only stop a tool with a failure the tool has declared.
+  failure: Schema.Union([CommandRefused, CommandTimedOut, ActRefused, JudgeDidNotAnswer]),
   failureMode: 'return',
 })
 

@@ -30,7 +30,7 @@ const mounted = (
 
 /**
  * The agent's own gated handlers, the very layer it mounts, with `judge` as the Judge
- * its Gate consults. The Judge is the one thing substituted, and it is the real Judge,
+ * its Gates consult. The Judge is the one thing substituted, and it is the real Judge,
  * budget and retry and all, over a scripted decision model: see `judging`.
  */
 export const judged = (
@@ -41,11 +41,11 @@ export const judged = (
 
 // Hooks are read where the toolkit layer is built, so they go in under it. A test that
 // passes none gets `handlers`, the very layer the agent mounts, so every test entry point
-// in the package runs through the Gate the agent runs, and an agent that stopped running
-// it would fail the Gate's tests; a test that passes its own hooks takes the seam over.
-// The Judge behind that Gate finds everything it is asked about requested and harmless,
-// so a test that does not care what is judged sees a write outside go ahead, and none of
-// them reaches the network.
+// in the package runs through the Gates the agent runs, and an agent that stopped running
+// one would fail that Gate's tests; a test that passes its own hooks takes the seam over.
+// The Judge behind those Gates finds everything it is asked about requested and harmless,
+// so a test that does not care what is judged sees a write outside, or any shell command,
+// go ahead, and none of them reaches the network.
 export const services = (
   workspace: string,
   hooks?: Hooks,
