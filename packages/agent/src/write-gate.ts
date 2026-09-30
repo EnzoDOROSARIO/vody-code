@@ -1,7 +1,6 @@
 import { Effect, Layer, Option, Path } from 'effect'
 
 import type { FileSystem } from 'effect'
-import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { OutsidePerimeter, Perimeter } from './perimeter.ts'
 import { refused } from './tools/errors.ts'
@@ -36,11 +35,13 @@ const hooks: Effect.Effect<Hooks, never, Perimeter | Path.Path> = Effect.gen(fun
             ? Effect.void
             : new OutsidePerimeter({
                 path: landing,
-                // No Perimeter is git's empty answer and git failing to run in one, so
-                // the refusal says what was found rather than what the Workspace is.
+                // No Perimeter covers a Workspace with no repository above it, one inside
+                // a repository's own `.git`, one under a `.git` file naming nothing, and
+                // one whose directories cannot be looked into, so the refusal says what
+                // was found rather than which it was.
                 reason: Option.match(perimeter.root, {
                   onNone: () =>
-                    `${call.name} will not write ${call.params.path}: git found no working tree at ${workspace}, or could not be run there, so there is nothing here the agent may change — nothing can be written until there is`,
+                    `${call.name} will not write ${call.params.path}: no git working tree could be found from ${workspace}, so there is nothing here the agent may change — nothing can be written until there is`,
                   onSome: (root) =>
                     `${call.name} will not write ${call.params.path}: it would land at ${landing}, outside the working tree at ${root} — only files inside that tree can be changed`,
                 }),
@@ -53,8 +54,7 @@ const hooks: Effect.Effect<Hooks, never, Perimeter | Path.Path> = Effect.gen(fun
 })
 
 /** Occupies the seam with the write Gate, with the Perimeter it measures against. */
-export const layer: Layer.Layer<
-  never,
-  never,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
-> = Layer.effect(Hooks, hooks).pipe(Layer.provide(Perimeter.layer))
+export const layer: Layer.Layer<never, never, FileSystem.FileSystem | Path.Path> = Layer.effect(
+  Hooks,
+  hooks,
+).pipe(Layer.provide(Perimeter.layer))

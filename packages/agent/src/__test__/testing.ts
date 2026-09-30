@@ -78,14 +78,66 @@ export const removeWorkspaces = (): Promise<void> =>
     }),
   )
 
+// The repository every workspace starts as: the `.git` of one `git init`, held as the
+// directories and files it is made of. Launching git for each test is what made the
+// suite slow — under mutation testing, parallel runs launching hundreds of processes
+// starved one another past the timeout — so it runs once per test process, on first
+// use, and each workspace is written from the copy in memory. In memory rather than on
+// disk, so there is no template directory left to outlive the process.
+type Repository = {
+  readonly directories: ReadonlyArray<string>
+  readonly files: ReadonlyArray<readonly [string, Uint8Array]>
+}
+
+const initialised: Effect.Effect<Repository, never, FileSystem.FileSystem> = Effect.scoped(
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+
+    const scratch = yield* fs.makeTempDirectoryScoped({ prefix: 'vody-template-' })
+
+    yield* fs.makeDirectory(`${scratch}/template`)
+
+    // An empty template leaves out git's sample hooks and descriptions, which nothing
+    // here reads. The branch name is passed to this one command rather than read from
+    // the developer's configuration, so the repository looks the same on every machine.
+    yield* Effect.promise(() =>
+      Bun.$`git -c init.defaultBranch=main init -q --template=${scratch}/template repo`
+        .cwd(scratch)
+        .quiet(),
+    )
+
+    const metadata = `${scratch}/repo/.git`
+
+    const directories: Array<string> = []
+    const files: Array<readonly [string, Uint8Array]> = []
+
+    for (const entry of yield* fs.readDirectory(metadata, { recursive: true })) {
+      const info = yield* fs.stat(`${metadata}/${entry}`)
+
+      if (info.type === 'Directory') {
+        directories.push(entry)
+      } else {
+        files.push([entry, yield* fs.readFile(`${metadata}/${entry}`)])
+      }
+    }
+
+    return { directories, files }
+  }),
+).pipe(Effect.orDie)
+
+const repository: Effect.Effect<Repository, never, FileSystem.FileSystem> = Effect.runSync(
+  Effect.cached(initialised),
+)
+
 // A workspace with a file to find inside it and one outside, so a test can show
 // that a tool reaches past the root the way bash would. The workspace is a git
 // repository, because a Perimeter is a working tree and a plain directory has none;
 // the file outside it is outside the repository too, and so outside any Perimeter.
 //
 // What comes back is the real path. On macOS the temporary directory sits behind a
-// symbolic link, and git names the tree by where it really is, so a test that
-// compares the two would otherwise have to resolve the link itself.
+// symbolic link, and the Perimeter resolves the Workspace to its real path before it
+// walks up looking for `.git`, so a test that compares against the root it finds would
+// otherwise have to resolve the link itself.
 export const workspace = (): Promise<string> =>
   onDisk(
     Effect.gen(function* () {
@@ -96,14 +148,18 @@ export const workspace = (): Promise<string> =>
       yield* Effect.promise(() => Bun.write(`${base}/work/inside/keep.txt`, 'kept'))
       yield* Effect.promise(() => Bun.write(`${base}/outside/secret.txt`, 'secret'))
 
-      // The branch name is passed to this one command rather than read from the
-      // developer's configuration, so the repository looks the same on every machine.
-      yield* Effect.promise(() =>
-        Bun.$`git -c init.defaultBranch=main init -q`.cwd(`${base}/work`).quiet(),
-      )
+      const { directories, files } = yield* repository
 
-      return yield* fs.realPath(`${base}/work`).pipe(Effect.orDie)
-    }),
+      for (const directory of directories) {
+        yield* fs.makeDirectory(`${base}/work/.git/${directory}`, { recursive: true })
+      }
+
+      for (const [file, content] of files) {
+        yield* fs.writeFile(`${base}/work/.git/${file}`, content)
+      }
+
+      return yield* fs.realPath(`${base}/work`)
+    }).pipe(Effect.orDie),
   )
 
 // The fixture directory beside the workspace, by its real path: `workspace` hands out

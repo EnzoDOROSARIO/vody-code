@@ -207,7 +207,7 @@ test('with no repository above the Workspace, write_file is refused everywhere i
   expect(outcome.isFailure).toBe(true)
   expect(outcome.result).toBeInstanceOf(OutsidePerimeter)
   expect(outcome.result).toMatchObject({
-    reason: `write_file will not write new.txt: git found no working tree at ${directory}, or could not be run there, so there is nothing here the agent may change — nothing can be written until there is`,
+    reason: `write_file will not write new.txt: no git working tree could be found from ${directory}, so there is nothing here the agent may change — nothing can be written until there is`,
   })
   expect(await Bun.file(`${directory}/new.txt`).exists()).toBe(false)
 })
