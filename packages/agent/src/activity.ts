@@ -55,7 +55,22 @@ export type Reply = {
   readonly type: 'reply'
 }
 
-// One thing the agent did on the way to an answer. Every one of these is a report of
-// what happened, never a rendering of it: the agent writes to no screen, and whoever
-// is watching decides how, and whether, each is shown.
-export type Activity = Reply | ToolCall | ToolResult
+/**
+ * The Impasse: the Turn ended without an answer, because the Gates kept refusing what
+ * the model reached for. `refusals` is how many were refused since the last call of the
+ * model that got a gated act through untouched, which is what ran out, and it is the
+ * real count rather than the cap: one call can reach for several refused acts at once
+ * and go past it. The refusals themselves were reported as they happened, each as the
+ * tool result it was, so this carries no reasons of its own: it only says that nothing
+ * else is coming.
+ */
+export type Impasse = {
+  readonly refusals: number
+  readonly type: 'impasse'
+}
+
+// One thing that happened on the way to the end of a Turn: something the agent did, or
+// the loop's own report that the Turn is over. Every one of these is a report of what
+// happened, never a rendering of it: the agent writes to no screen, and whoever is
+// watching decides how, and whether, each is shown.
+export type Activity = Impasse | Reply | ToolCall | ToolResult

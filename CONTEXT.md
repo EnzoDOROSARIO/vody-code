@@ -9,9 +9,16 @@ particular here, so the code and the conversation about it stay in step.
 ### The conversation
 
 **Turn**:
-Everything that follows one thing you typed, up to the agent's final answer. A turn
-may reach for tools many times before it ends.
+Everything that follows one thing you typed, up to the agent's final answer, or up to
+an Impasse if the Gates end it first. A turn may reach for tools many times before it
+ends.
 _Avoid_: Round, exchange, iteration
+
+**Impasse**:
+How a Turn ends when the Gates have refused so many acts, with none allowed in between,
+that the loop stops sending the model back to try again. The Turn ends with no answer,
+and the Impasse is its last Activity.
+_Avoid_: Gate closed, stall, abort, giving up
 
 **Request**:
 What you typed to start the current Turn, exactly as you typed it. Every Turn has one;
@@ -20,8 +27,9 @@ model's account of it — see ADR 0001.
 _Avoid_: Question, prompt, input, message
 
 **Activity**:
-One thing the agent did on the way to an answer, reported as it happens. An Activity
-is a report, never a rendering: what it looks like is the screen's business.
+One thing that happened on the way to the end of a Turn, reported as it happens:
+something the agent did, or the loop's own report of an Impasse. An Activity is a
+report, never a rendering: what it looks like is the screen's business.
 _Avoid_: Event, message, update
 
 **Workspace**:

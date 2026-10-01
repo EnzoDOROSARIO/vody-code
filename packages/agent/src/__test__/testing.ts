@@ -212,24 +212,24 @@ export const scriptedModel = (script: Script): Layer.Layer<LanguageModel.Languag
   )
 
 /**
- * Put each question to the agent in turn, in one conversation, and collect every
- * Activity it reported along the way. The directory the tests were started in is the
- * Workspace, so the tools the script reaches for run against this repository, through
- * whatever `hooks` puts at the seam.
+ * Put each question to the agent in turn, in one conversation, over `tools`, and collect
+ * every Activity it reported along the way. `asked` is this over the default services;
+ * a test that needs a Perimeter to be outside of, or a Judge that refuses, builds its own
+ * with `judged` and comes here directly.
  */
-export const asked = (
+export const conversed = (
   script: Script,
   questions: ReadonlyArray<string>,
-  hooks?: Hooks,
+  tools: Layer.Layer<BunServices.BunServices | Handlers>,
 ): Promise<Array<Activity>> => {
   const program = Effect.gen(function* () {
-    const tools = yield* toolkit
+    const kit = yield* toolkit
     const session = yield* Chat.fromPrompt(Prompt.empty)
 
     const seen: Array<Activity> = []
 
     for (const question of questions) {
-      yield* Stream.runForEach(answer(session, tools, question), (activity) =>
+      yield* Stream.runForEach(answer(session, kit, question), (activity) =>
         Effect.sync(() => {
           seen.push(activity)
         }),
@@ -239,10 +239,20 @@ export const asked = (
     return seen
   })
 
-  const provided = Layer.mergeAll(scriptedModel(script), services(process.cwd(), hooks))
-
   return Effect.runPromise(
     // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-    program.pipe(Effect.provide(provided)),
+    program.pipe(Effect.provide(Layer.mergeAll(scriptedModel(script), tools))),
   )
 }
+
+/**
+ * Put each question to the agent in turn, in one conversation, and collect every
+ * Activity it reported along the way. The directory the tests were started in is the
+ * Workspace, so the tools the script reaches for run against this repository, through
+ * whatever `hooks` puts at the seam.
+ */
+export const asked = (
+  script: Script,
+  questions: ReadonlyArray<string>,
+  hooks?: Hooks,
+): Promise<Array<Activity>> => conversed(script, questions, services(process.cwd(), hooks))

@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, Ref, Schema, Stream } from 'effect'
+import { Effect, Layer, Option, Predicate, Ref, Schema, Stream } from 'effect'
 
 import type { FileSystem, Path } from 'effect'
 import type { AiError, Chat, LanguageModel, Prompt, Response, Toolkit } from 'effect/unstable/ai'
@@ -12,7 +12,7 @@ import { Judge } from './judge.ts'
 import { Request } from './request.ts'
 import { toolkitLayer } from './tools/index.ts'
 
-import type { Activity } from './activity.ts'
+import type { Activity, ToolResult } from './activity.ts'
 import type { JudgeCredentialsRequired } from './judge.ts'
 import type { Handlers, Tools } from './tools/index.ts'
 
@@ -42,7 +42,7 @@ export { Workspace } from './workspace.ts'
 
 export { JudgeCredentialsRequired } from './judge.ts'
 
-export type { Activity, Reply, ToolFailure, ToolResult } from './activity.ts'
+export type { Activity, Impasse, Reply, ToolFailure, ToolResult } from './activity.ts'
 
 export type { Handlers, Tools } from './tools/index.ts'
 
@@ -72,35 +72,113 @@ const reported = (part: Response.StreamPart<Tools, 'opaque'>): Stream.Stream<Act
   return part.type === 'tool-result' ? Stream.succeed(part) : Stream.empty
 }
 
+/**
+ * How many refusals a Turn takes before it reaches an Impasse. A refusal goes back to the
+ * model as a failure to work around, and nothing but the model decides what it tries
+ * next: with no person to overrule the Gate, a model that keeps rephrasing would loop, a
+ * call to the Judge on every pass, for as long as it liked.
+ */
+const REFUSALS_BEFORE_AN_IMPASSE = 3
+
+// Which tools pass a Gate. Only a gated act that was allowed says the model has found a
+// way through, so only those clear the count; reading and searching always succeed, and
+// a model that reads between attempts, as one does when something is not working, would
+// otherwise clear it every time. The tool's name is the fact read here rather than a
+// signal out of the Gate, because the write Gate lets writes inside the Perimeter through
+// unjudged, and those are allowed acts too: whether the Judge was asked does not matter,
+// only that the tool is one a Gate stands in front of. The record names every tool, so a
+// new one is a compile error until someone says which side of this line it is on.
+const GATED = {
+  bash: true,
+  edit_file: true,
+  glob: false,
+  read_file: false,
+  write_file: true,
+} satisfies { readonly [Name in ToolResult['name']]: boolean }
+
+// A refusal is either failure a Gate returns: an act the Judge judged and was refused, or
+// one refused because the Judge did not answer. Both mean the act did not happen for
+// reasons the model cannot argue with, so both count. Read by tag, on any tool, so a tool
+// that gains a Gate is counted without being named here.
+const refused = (result: ToolResult): boolean =>
+  result.isFailure &&
+  (Predicate.isTagged(result.result, 'ActRefused') ||
+    Predicate.isTagged(result.result, 'JudgeDidNotAnswer'))
+
+/** What one call of the model met at the Gates, across every tool it reached for. */
+type Step = {
+  readonly allowed: boolean
+  readonly refused: number
+}
+
+const UNTOUCHED: Step = { allowed: false, refused: 0 }
+
+// Any other failure, a file not found or an edit that matched nothing, is the model's to
+// fix and says nothing about the Gate either way.
+const met = (step: Step, result: ToolResult): Step => {
+  if (refused(result)) {
+    return { ...step, refused: step.refused + 1 }
+  }
+
+  return !result.isFailure && GATED[result.name] ? { ...step, allowed: true } : step
+}
+
+// The count after one call of the model. The tools a call reached for run concurrently,
+// so their results arrive in whatever order they finish, and a model that asked for them
+// all at once saw none of them before asking: inside one call nothing comes between
+// anything else. So the rule reads the call as a whole. Its refusals add up, and only a
+// call that got a gated act through and was refused nothing clears the count.
+const tallied = (refusals: number, step: Step): number =>
+  step.allowed && step.refused === 0 ? 0 : refusals + step.refused
+
 // One call of the model and, if it reached for a tool, the calls after it. This is the
 // recursion `answer` wraps, kept apart from it so the Request is provided once around
 // the whole Turn: a continuation prompts the model with nothing, and one that provided
-// its own Request would replace the person's words with none halfway through.
+// its own Request would replace the person's words with none halfway through. The
+// refusal count is the Turn's too, made once in `answer` and carried through every call.
 const respond = (
   chat: Chat.Chat,
   tools: Toolkit.WithHandler<Tools>,
   prompt: Prompt.RawInput,
+  refusals: Ref.Ref<number>,
 ): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
   Stream.unwrap(
     Effect.gen(function* () {
       const calledTools = yield* Ref.make(false)
+      const step = yield* Ref.make(UNTOUCHED)
 
       const turn = chat.streamText({ prompt, toolkit: tools }).pipe(
-        Stream.tap((part) =>
-          part.type === 'tool-call' ? Ref.set(calledTools, true) : Effect.void,
-        ),
+        Stream.tap((part) => {
+          if (part.type === 'tool-call') {
+            return Ref.set(calledTools, true)
+          }
+
+          return part.type === 'tool-result'
+            ? Ref.update(step, (current) => met(current, part))
+            : Effect.void
+        }),
         Stream.flatMap(reported),
       )
 
       // A turn that reached for a tool has not answered yet. The empty prompt sends
-      // the model back in with the results the chat is already holding. A turn that
-      // did not has already said everything it had to say, fragment by fragment.
+      // the model back in with the results the chat is already holding, unless the Gates
+      // have refused enough for an Impasse instead, which is said as the Turn's last
+      // Activity so nobody waits for an answer. A turn that did not reach for a tool has
+      // already said everything it had to say, fragment by fragment.
       const rest = Stream.unwrap(
-        Effect.map(
-          Ref.get(calledTools),
-          (reached): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
-            reached ? respond(chat, tools, []) : Stream.empty,
-        ),
+        Effect.gen(function* () {
+          const reached = yield* Ref.get(calledTools)
+          const gated = yield* Ref.get(step)
+          const count = yield* Ref.updateAndGet(refusals, (current) => tallied(current, gated))
+
+          if (!reached) {
+            return Stream.empty
+          }
+
+          return count >= REFUSALS_BEFORE_AN_IMPASSE
+            ? Stream.succeed<Activity>({ refusals: count, type: 'impasse' })
+            : respond(chat, tools, [], refusals)
+        }),
       )
 
       return Stream.concat(turn, rest)
@@ -109,16 +187,19 @@ const respond = (
 
 /**
  * Stream one Turn: everything the agent does in answer to what the person typed, up to
- * and including its final reply. The words are the Turn's Request, and a `bash`
- * handler, or anything else running inside the Turn, reads them from `Request` on the
- * first call of the model and on every continuation after a tool result.
+ * and including its final reply, or the Impasse the Gates brought it to first. The words
+ * are the Turn's Request, and a `bash` handler, or anything else running inside the
+ * Turn, reads them from `Request` on the first call of the model and on every
+ * continuation after a tool result. Each Turn counts its refusals from none.
  */
 export const answer = (
   chat: Chat.Chat,
   tools: Toolkit.WithHandler<Tools>,
   request: string,
 ): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
-  respond(chat, tools, request).pipe(Stream.provideService(Request, Option.some(request)))
+  Stream.unwrap(
+    Effect.map(Ref.make(0), (refusals) => respond(chat, tools, request, refusals)),
+  ).pipe(Stream.provideService(Request, Option.some(request)))
 
 /**
  * The handlers the agent runs, with both Gates in front of them. The Gates go in

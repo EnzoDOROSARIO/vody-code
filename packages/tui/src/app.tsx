@@ -5,14 +5,18 @@ import { useReducer, useState } from 'react'
 import { casesHandled } from './defects.ts'
 import { Markdown } from './markdown/index.tsx'
 
-import type { Activity, ToolCall, ToolFailure, ToolResult } from 'agent'
+import type { Activity, Impasse, ToolCall, ToolFailure, ToolResult } from 'agent'
 import type { Key } from 'ink'
 import type { ReactElement } from 'react'
 
 export type Ask = (question: string, show: (activity: Activity) => void) => Promise<void>
 
-/** Who put a line in the transcript, which is all its styling depends on. */
-export type Source = 'agent' | 'call' | 'result' | 'you'
+/**
+ * Who put a line in the transcript, which is all its styling depends on. `impasse` is
+ * the agent too, but the loop speaking rather than the model: the Turn is over, and not
+ * because the model had finished.
+ */
+export type Source = 'agent' | 'call' | 'impasse' | 'result' | 'you'
 
 /**
  * One line of the transcript.
@@ -71,18 +75,30 @@ const gave = (result: ToolResult): string | undefined => {
   return result.name === 'bash' ? result.result.slice(0, PREVIEW_CHARACTERS) : undefined
 }
 
+// A Turn that reached an Impasse hands the prompt back just as one that answered does, so the
+// line has to say it is over and why, or the person sits waiting for an answer that is
+// not coming. The refusals themselves are the lines above it, each with its reasons.
+const stopped = (impasse: Impasse): string =>
+  `The Turn ended without an answer: the Gates refused ${impasse.refusals} acts with none allowed in between, so the agent stopped trying. Ask again another way, or do this part yourself.`
+
 export const transcribe = (activity: Activity): Line | undefined => {
-  if (activity.type === 'reply') {
-    return { id: activity.id, source: 'agent', text: activity.text }
+  switch (activity.type) {
+    case 'reply':
+      return { id: activity.id, source: 'agent', text: activity.text }
+    case 'tool-call':
+      return { source: 'call', text: asked(activity) }
+    case 'tool-result': {
+      const shown = gave(activity)
+
+      return shown === undefined ? undefined : { source: 'result', text: shown }
+    }
+
+    case 'impasse':
+      return { source: 'impasse', text: stopped(activity) }
+    // Stryker disable next-line ConditionalExpression: every Activity has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
+    default:
+      return casesHandled(activity)
   }
-
-  if (activity.type === 'tool-call') {
-    return { source: 'call', text: asked(activity) }
-  }
-
-  const shown = gave(activity)
-
-  return shown === undefined ? undefined : { source: 'result', text: shown }
 }
 
 // The agent's answer arrives a fragment at a time, so the transcript grows two ways: a
@@ -118,6 +134,12 @@ const Entry = ({ line }: { readonly line: Line }): ReactElement => {
 
   if (line.source === 'you') {
     return <Text>{line.text}</Text>
+  }
+
+  // The loop's last word on a Turn is set in bold, with none of a tool's grey, so it
+  // reads as neither the model talking nor a tool's output.
+  if (line.source === 'impasse') {
+    return <Text bold>{line.text}</Text>
   }
 
   return (

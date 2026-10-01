@@ -1,0 +1,302 @@
+import { afterEach, expect, test } from 'bun:test'
+
+import type { Layer } from 'effect'
+import type { Response } from 'effect/unstable/ai'
+
+import { answering, judging, rejected } from './judging.ts'
+import { conversed, judged, removeWorkspaces, workspace } from './testing.ts'
+import { ActRefused, JudgeDidNotAnswer } from '#tools/index.ts'
+
+import type { Reply } from './judging.ts'
+import type { Script } from './testing.ts'
+import type { Activity } from '#activity.ts'
+import type { Judge } from '#judge.ts'
+
+afterEach(removeWorkspaces)
+
+// A write the Judge finds unrequested and dangerous, which it refuses. Nothing in a
+// command's questions is dangerous by these answers, so the same Judge lets `bash` run:
+// the refusing is about writes outside, and every other gated act is allowed.
+const refusing: Reply = answering(
+  new Map([
+    ['serves_request', 0],
+    ['affects_machine_or_other_projects', 1],
+  ]),
+)
+
+type Part = Response.StreamPartEncoded
+
+// Every step is its own call of the model, so a step's number is the model's turn, and
+// `slot` tells apart the calls one step makes together. Every argument any of these
+// steps passes is a string.
+const call = (
+  turn: number,
+  slot: number,
+  name: string,
+  params: Readonly<Record<string, string>>,
+): Array<Part> => [{ type: 'tool-call', id: `call-${turn}-${slot}`, name, params }]
+
+/** A write past the root, into the fixture beside the working tree: outside the Perimeter. */
+const writeOutside = (turn: number, slot: number): Array<Part> =>
+  call(turn, slot, 'write_file', { path: `../outside/${turn}-${slot}.txt`, content: 'hello' })
+
+const writeInside = (turn: number, slot: number): Array<Part> =>
+  call(turn, slot, 'write_file', { path: `inside/${turn}-${slot}.txt`, content: 'hello' })
+
+const editInside = (turn: number, slot: number): Array<Part> =>
+  call(turn, slot, 'edit_file', { path: 'inside/keep.txt', old_text: 'kept', new_text: 'kept' })
+
+const editMissing = (turn: number, slot: number): Array<Part> =>
+  call(turn, slot, 'edit_file', { path: 'inside/keep.txt', old_text: 'absent', new_text: 'x' })
+
+const run = (turn: number, slot: number): Array<Part> =>
+  call(turn, slot, 'bash', { command: 'echo hi' })
+
+const read = (turn: number, slot: number): Array<Part> =>
+  call(turn, slot, 'read_file', { path: 'inside/keep.txt' })
+
+const search = (turn: number, slot: number): Array<Part> =>
+  call(turn, slot, 'glob', { pattern: '**/*.txt' })
+
+const answer: Array<Part> = [{ type: 'text-delta', id: 'text-1', delta: 'done' }]
+
+type Step = (turn: number, slot: number) => Array<Part>
+
+// A model that takes `steps` one call of the model at a time and then answers. However
+// long the list, it answers in the end, so a loop with no cap finishes too, just with more
+// calls in it.
+const scripted =
+  (steps: ReadonlyArray<Step>): Script =>
+  (turn) =>
+    steps[turn]?.(turn, 0) ?? answer
+
+// One step that reaches for several tools at once, as a model does when it asks for them
+// in parallel: the tools run concurrently, and their results come back in whatever order
+// they finish.
+const together =
+  (...steps: ReadonlyArray<Step>): Step =>
+  (turn) =>
+    steps.flatMap((step, slot) => step(turn, slot))
+
+const repeated = (step: Step, times: number): ReadonlyArray<Step> =>
+  Array.from({ length: times }, () => step)
+
+const talk = async (
+  steps: ReadonlyArray<Step>,
+  judge: Layer.Layer<Judge> = judging([refusing]),
+  questions: ReadonlyArray<string> = ['tidy up'],
+): Promise<Array<Activity>> =>
+  conversed(scripted(steps), questions, judged(await workspace(), judge))
+
+const calls = (activities: ReadonlyArray<Activity>): number =>
+  activities.filter((activity) => activity.type === 'tool-call').length
+
+test('a model that keeps writing outside is stopped after the third refusal', async () => {
+  const activities = await talk(repeated(writeOutside, 10))
+
+  expect(calls(activities)).toBe(3)
+  expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
+})
+
+const closed = (activities: ReadonlyArray<Activity>): boolean =>
+  activities.some((activity) => activity.type === 'impasse')
+
+// The count is exactly what the comparison bounds, so a line one out either way shows
+// here: two refusals leave the Turn going, and the model answers as it meant to.
+test('two refusals leave the Turn going to its answer', async () => {
+  const activities = await talk(repeated(writeOutside, 2))
+
+  expect(calls(activities)).toBe(2)
+  expect(closed(activities)).toBe(false)
+  expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'done', type: 'reply' })
+})
+
+// Nothing follows the report: no fourth call, and no reply the model never gave.
+test('the end of a Turn by refusal is its last Activity', async () => {
+  const activities = await talk(repeated(writeOutside, 10))
+
+  expect(activities.filter((activity) => activity.type === 'impasse')).toHaveLength(1)
+  expect(activities.filter((activity) => activity.type === 'reply')).toEqual([])
+  expect(activities.filter((activity) => activity.type === 'tool-result')).toMatchObject([
+    { isFailure: true, name: 'write_file' },
+    { isFailure: true, name: 'write_file' },
+    { isFailure: true, name: 'write_file' },
+  ])
+})
+
+// Each gated tool, allowed, between pairs of refusals: a write inside, which no Judge is
+// asked about, an edit inside, and a command the Judge let run. Eight refusals in all,
+// never three since the last act that went through.
+test('an allowed gated act clears the count', async () => {
+  const twice = repeated(writeOutside, 2)
+
+  const activities = await talk([
+    ...twice,
+    writeInside,
+    ...twice,
+    editInside,
+    ...twice,
+    run,
+    ...twice,
+  ])
+
+  expect(calls(activities)).toBe(11)
+  expect(closed(activities)).toBe(false)
+  expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'done', type: 'reply' })
+})
+
+// Reading and searching always succeed. A model that looks around between attempts is
+// still being refused, and the third refusal ends the Turn with the looking in between.
+test('a successful read or search does not clear the count', async () => {
+  const activities = await talk([writeOutside, read, writeOutside, search, writeOutside, read])
+
+  expect(calls(activities)).toBe(5)
+  expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
+})
+
+// An edit that matched nothing is the model's mistake, not the Gate's answer: it neither
+// counts as a refusal nor, having done nothing, as an act allowed through.
+test('a gated tool that failed on its own neither counts nor clears', async () => {
+  const twice = repeated(writeOutside, 2)
+
+  const counted = await talk([...twice, editMissing, writeInside])
+  const cleared = await talk([...twice, editMissing, writeOutside, writeInside])
+
+  expect(closed(counted)).toBe(false)
+  expect(calls(cleared)).toBe(4)
+  expect(cleared.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
+})
+
+// A long Turn that brushes the Gate twice, far apart, is doing its work and carries on.
+test('a Turn doing useful work through one or two refusals answers as normal', async () => {
+  const activities = await talk([
+    read,
+    search,
+    writeInside,
+    writeOutside,
+    editInside,
+    read,
+    run,
+    writeOutside,
+    writeInside,
+    read,
+  ])
+
+  expect(calls(activities)).toBe(10)
+  expect(closed(activities)).toBe(false)
+  expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'done', type: 'reply' })
+})
+
+// A command the Judge finds unrequested and irreversible. The count reads a refusal by
+// its tag, whichever Gate returned it, so a model that keeps rephrasing a command it is
+// refused is stopped the same way as one that keeps writing outside.
+const destroying: Reply = answering(
+  new Map([
+    ['serves_request', 0],
+    ['irreversible', 1],
+  ]),
+)
+
+test('a model that keeps running a refused command is stopped after the third refusal', async () => {
+  const activities = await talk(repeated(run, 10), judging([destroying]))
+
+  expect(calls(activities)).toBe(3)
+  expect(activities.filter((activity) => activity.type === 'tool-result')).toMatchObject([
+    { isFailure: true, name: 'bash', result: expect.any(ActRefused) },
+    { isFailure: true, name: 'bash', result: expect.any(ActRefused) },
+    { isFailure: true, name: 'bash', result: expect.any(ActRefused) },
+  ])
+  expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
+})
+
+// A Judge that refuses the first write it is asked about and then stops answering: one
+// judged refusal, then two refused unjudged, and the three together end the Turn.
+test('refusals because the Judge did not answer count alongside judged ones', async () => {
+  const activities = await talk(repeated(writeOutside, 10), judging([refusing, rejected]))
+
+  const failures = activities.flatMap((activity) =>
+    activity.type === 'tool-result' && activity.isFailure ? [activity.result] : [],
+  )
+
+  expect(failures).toEqual([
+    expect.any(ActRefused),
+    expect.any(JudgeDidNotAnswer),
+    expect.any(JudgeDidNotAnswer),
+  ])
+  expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
+})
+
+// Two refusals in one Turn and two in the next are two Turns each short of the cap. The
+// model's turns run on across questions, so the second question's steps follow the
+// first's answer in the script.
+test('each Turn counts its refusals from none', async () => {
+  const twice = repeated(writeOutside, 2)
+
+  const activities = await talk([...twice, () => answer, ...twice], judging([refusing]), [
+    'tidy up',
+    'and again',
+  ])
+
+  expect(calls(activities)).toBe(4)
+  expect(closed(activities)).toBe(false)
+  expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'done', type: 'reply' })
+})
+
+// One call of the model that reaches for four refused writes at once passes the cap in a
+// single step, and the Impasse carries the count that ran out, not the cap it passed.
+test('several refusals in one step all count, and the Impasse says how many', async () => {
+  const activities = await talk([together(...repeated(writeOutside, 4))])
+
+  expect(calls(activities)).toBe(4)
+  expect(activities.at(-1)).toEqual({ refusals: 4, type: 'impasse' })
+})
+
+// Calls made together saw none of each other's results, so an allowed act among them
+// comes between nothing: a step that was refused anything adds to the count, whatever
+// else in it went through. The write inside is never judged, so it finishes first or
+// last depending on where it sits, and the outcome is the same either way.
+test('an allowed act in a step that was also refused does not clear the count', async () => {
+  const before = await talk([writeOutside, together(writeInside, writeOutside), writeOutside])
+  const after = await talk([writeOutside, together(writeOutside, writeInside), writeOutside])
+
+  expect(calls(before)).toBe(4)
+  expect(before.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
+  expect(calls(after)).toBe(4)
+  expect(after.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
+})
+
+// A step whose gated acts all went through clears the count, however many it made.
+test('a step that got every gated act through clears the count', async () => {
+  const twice = repeated(writeOutside, 2)
+
+  const activities = await talk([...twice, together(writeInside, editInside), ...twice])
+
+  expect(calls(activities)).toBe(6)
+  expect(closed(activities)).toBe(false)
+  expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'done', type: 'reply' })
+})
+
+// A provider streams a call's arguments ahead of the call itself, each fragment naming
+// the tool it is for. An edit that matched nothing, streamed that way, has still done
+// nothing: its arguments arriving say nothing about the Gate, so the third refusal after
+// it ends the Turn just as it does when the call arrives whole.
+const streamedEditMissing = (turn: number, slot: number): Array<Part> => {
+  const id = `call-${turn}-${slot}`
+  const params = { path: 'inside/keep.txt', old_text: 'absent', new_text: 'x' }
+
+  return [
+    { type: 'tool-params-start', id, name: 'edit_file' },
+    { type: 'tool-params-delta', id, delta: JSON.stringify(params) },
+    { type: 'tool-params-end', id },
+    { type: 'tool-call', id, name: 'edit_file', params },
+  ]
+}
+
+test('a gated call streamed in fragments is not an act allowed through', async () => {
+  const twice = repeated(writeOutside, 2)
+
+  const activities = await talk([...twice, streamedEditMissing, writeOutside, writeInside])
+
+  expect(calls(activities)).toBe(4)
+  expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
+})

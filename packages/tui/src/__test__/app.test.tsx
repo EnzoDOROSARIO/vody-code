@@ -4,11 +4,11 @@ import { Response } from 'effect/unstable/ai'
 import { renderToString } from 'ink'
 
 import { App, Prompt, Transcript, keystroke, transcribe, written } from '#app.tsx'
-import { DIM, GREY_BACKGROUND, colourful } from './testing.ts'
+import { BOLD, DIM, GREY_BACKGROUND, colourful } from './testing.ts'
 
 import { CommandRefused } from 'agent'
 
-import type { ToolResult } from 'agent'
+import type { Impasse, ToolResult } from 'agent'
 import type { Line } from '#app.tsx'
 import type { Chord } from '#app.tsx'
 
@@ -116,6 +116,34 @@ test('a call the agent never ran says so in the same breath', () => {
     source: 'result',
     text: 'write_file failed: the user said no',
   })
+})
+
+const impasse: Impasse = { refusals: 3, type: 'impasse' }
+
+const ENDED =
+  'The Turn ended without an answer: the Gates refused 3 acts with none allowed in between, so the agent stopped trying. Ask again another way, or do this part yourself.'
+
+// A Turn that answered ends with the prompt coming back, and so does one that reached an
+// Impasse, so the second has to say so, or the person waits for an answer that is not
+// coming.
+test('a Turn that reached an Impasse says so, and says it is over', () => {
+  expect(transcribe(impasse)).toEqual({ source: 'impasse', text: ENDED })
+})
+
+test('an Impasse stands out from the agent and its tools', () => {
+  const lines: ReadonlyArray<Line> = [
+    { source: 'agent', text: 'let me try' },
+    { source: 'impasse', text: ENDED },
+  ]
+
+  const [agent, ended] = colourful(<Transcript lines={lines} />, 400).split('\n')
+
+  expect(agent).toBe('let me try')
+  expect(ended).toContain(BOLD)
+  expect(ended).not.toContain(GREY_BACKGROUND)
+  expect(renderToString(<Transcript lines={lines} />, { columns: 400 })).toBe(
+    `let me try\n${ENDED}`,
+  )
 })
 
 test('the reply is the agent speaking, not a tool', () => {
