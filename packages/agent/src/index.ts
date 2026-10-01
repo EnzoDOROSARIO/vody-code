@@ -6,8 +6,9 @@ import { FetchHttpClient } from 'effect/unstable/http'
 import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { ToolCall } from './activity.ts'
+import type { CodexAuthenticationRequired } from './credentials.ts'
+import { CodexCredentials } from './credentials.ts'
 import * as Codex from './codex.ts'
-import * as Credentials from './credentials.ts'
 import * as Gates from './gates.ts'
 import { Judge } from './judge.ts'
 import { Request } from './request.ts'
@@ -224,9 +225,9 @@ export const handlers: Layer.Layer<
  */
 export const layer: Layer.Layer<
   LanguageModel.LanguageModel | Handlers,
-  Credentials.CodexAuthenticationRequired | JudgeCredentialsRequired,
+  CodexAuthenticationRequired | JudgeCredentialsRequired,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
 > = Layer.mergeAll(
   handlers.pipe(Layer.provide(Judge.layer)),
-  Codex.layer.pipe(Layer.provide(Credentials.fromAuthFile)),
+  Codex.layer.pipe(Layer.provide(CodexCredentials.fromAuthFile)),
 ).pipe(Layer.provide(FetchHttpClient.layer))

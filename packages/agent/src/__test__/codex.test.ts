@@ -1,13 +1,13 @@
 import { expect, it } from '@effect/vitest'
-import { Context, Effect, Exit, Layer, Predicate, Redacted, Schema } from 'effect'
+import { Context, Effect, Exit, Layer, Redacted, Schema } from 'effect'
 import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
 import { LanguageModel } from 'effect/unstable/ai'
 
-import { authenticate, layer, withEncryptedReasoning } from '#codex.ts'
+import { authenticate, bodyText, layer, withEncryptedReasoning } from '#codex.ts'
 import { CodexAuthenticationRequired, CodexCredentials } from '#credentials.ts'
 
 import { rendered } from './testing.ts'
-import type { Credential } from '#credentials.ts'
+import type { CredentialFound } from '#credentials.ts'
 
 const Body = Schema.Struct({
   include: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -18,12 +18,12 @@ const Body = Schema.Struct({
 
 const decodeBody = Schema.decodeEffect(Schema.fromJsonString(Body))
 
+// Reading back what a request carried, decoded against the schema the assertions
+// speak in: the body the client sent on, as the test saw it.
 const sent = (request: HttpClientRequest.HttpClientRequest): typeof Body.Type => {
-  const body = request.body
+  const text = bodyText(request)
 
-  return Predicate.isTagged(body, 'Uint8Array')
-    ? Effect.runSync(decodeBody(body.text ?? new TextDecoder().decode(body.body)))
-    : {}
+  return text === undefined ? {} : Effect.runSync(decodeBody(text))
 }
 
 // Absolute, because a request that is executed rather than only inspected has no
@@ -56,15 +56,16 @@ it('does not add the same include twice', () => {
   expect(sent(request).include).toEqual(['reasoning.encrypted_content'])
 })
 
-const credential = (accessToken: string, accountId: string): Credential => ({
+const credential = (accessToken: string, accountId: string): CredentialFound => ({
   accessToken: Redacted.make(accessToken),
   accountId: Redacted.make(accountId),
 })
 
 // The credentials port, faked: the decoration is tested against a port that answers
 // each read with `current`, and no auth file is written for it.
-const port = (current: Effect.Effect<Credential, CodexAuthenticationRequired>): CodexCredentials =>
-  CodexCredentials.of({ current })
+const port = (
+  current: Effect.Effect<CredentialFound, CodexAuthenticationRequired>,
+): CodexCredentials['Service'] => CodexCredentials.of({ current })
 
 // A client that answers everything with an empty 200 and keeps every request it was
 // handed, which is the part `authenticate` is responsible for.
@@ -176,16 +177,14 @@ it('a request with no body of its own is left exactly as it came', () => {
   expect(withEncryptedReasoning(request)).toBe(request)
 })
 
-// A transport that answers everything with an empty 200 and sends nothing anywhere.
-const quietTransport = (): HttpClient.HttpClient =>
-  HttpClient.make((request) =>
-    Effect.succeed(HttpClientResponse.fromWeb(request, new Response(null, { status: 200 }))),
-  )
+// A transport that answers everything with an empty 200 and sends nothing anywhere:
+// the recorder's client, with nothing asked of what it saw.
+const quietTransport = (): HttpClient.HttpClient => recorder().client
 
 // The model adapter over a port the test chose and a transport it chose — building
 // the adapter reads the credentials once, and no request of the model's is made here.
 const modelLayer = (
-  credentials: CodexCredentials,
+  credentials: CodexCredentials['Service'],
   transport: HttpClient.HttpClient = quietTransport(),
 ): Layer.Layer<LanguageModel.LanguageModel, CodexAuthenticationRequired> =>
   layer.pipe(

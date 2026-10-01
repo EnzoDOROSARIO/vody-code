@@ -15,16 +15,27 @@ const REASONING_EFFORT = 'high'
 
 const API_URL = 'https://chatgpt.com/backend-api/codex'
 
+// A body handed over as bytes rather than as text carries no `text` of its own, which
+// is the only way the byte decode is reached. Anything without a readable body reads
+// as none. Exported for the tests, which read back what went out.
+export const bodyText = (request: HttpClientRequest.HttpClientRequest): string | undefined => {
+  const body = request.body
+
+  return Predicate.isTagged(body, 'Uint8Array')
+    ? (body.text ?? new TextDecoder().decode(body.body))
+    : undefined
+}
+
 export const withEncryptedReasoning = (
   request: HttpClientRequest.HttpClientRequest,
 ): HttpClientRequest.HttpClientRequest => {
-  const body = request.body
+  const text = bodyText(request)
 
-  if (!Predicate.isTagged(body, 'Uint8Array')) {
+  if (text === undefined) {
     return request
   }
 
-  const payload = JSON.parse(body.text ?? new TextDecoder().decode(body.body))
+  const payload = JSON.parse(text)
   const include = Array.isArray(payload.include) ? payload.include : []
 
   return include.includes('reasoning.encrypted_content')
@@ -38,7 +49,7 @@ export const withEncryptedReasoning = (
 // Exported for the tests, which reach the headers it sets without standing up the
 // whole OpenAI client around it.
 export const authenticate =
-  (credentials: CodexCredentials) =>
+  (credentials: CodexCredentials['Service']) =>
   (client: HttpClient.HttpClient): HttpClient.HttpClient =>
     client.pipe(
       HttpClient.mapRequestEffect((request) =>

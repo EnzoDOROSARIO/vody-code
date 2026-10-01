@@ -6,10 +6,10 @@ import * as Util from 'node:util'
 
 import { TestClock } from 'effect/testing'
 
-import { CodexCredentials, fromAuthFile } from '#credentials.ts'
+import { CodexCredentials } from '#credentials.ts'
 
 import { rendered, write } from './testing.ts'
-import type { CodexAuthenticationRequired, Credential } from '#credentials.ts'
+import type { CodexAuthenticationRequired, CredentialFound } from '#credentials.ts'
 
 const ACCOUNT = 'fake-account-id'
 
@@ -69,7 +69,7 @@ afterEach(async () => {
 // to wait on.
 const withCredentials = <A>(
   env: Record<string, string>,
-  use: (credentials: CodexCredentials) => Effect.Effect<A, CodexAuthenticationRequired>,
+  use: (credentials: CodexCredentials['Service']) => Effect.Effect<A, CodexAuthenticationRequired>,
   clock: Layer.Layer<never> = Layer.empty,
 ): Effect.Effect<A, CodexAuthenticationRequired> =>
   Effect.gen(function* () {
@@ -79,7 +79,7 @@ const withCredentials = <A>(
   }).pipe(
     // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
     Effect.provide(
-      fromAuthFile.pipe(
+      CodexCredentials.fromAuthFile.pipe(
         Layer.provideMerge(NodeServices.layer),
         Layer.provideMerge(ConfigProvider.layer(ConfigProvider.fromEnvRecord(env))),
         Layer.provideMerge(clock),
@@ -91,7 +91,7 @@ const withCredentials = <A>(
 const read = (
   home: string,
   clock?: Layer.Layer<never>,
-): Effect.Effect<Exit.Exit<Credential, CodexAuthenticationRequired>> =>
+): Effect.Effect<Exit.Exit<CredentialFound, CodexAuthenticationRequired>> =>
   withCredentials({ CODEX_HOME: home }, (credentials) => credentials.current, clock).pipe(
     Effect.exit,
   )
@@ -168,7 +168,7 @@ it.live('no credential file asks for a login', () =>
 // approached.
 const readFrozen = (home: string) => read(home, TestClock.layer())
 
-const refusal = (exit: Exit.Exit<Credential, CodexAuthenticationRequired>): string =>
+const refusal = (exit: Exit.Exit<CredentialFound, CodexAuthenticationRequired>): string =>
   Exit.isFailure(exit) ? rendered(exit) : 'the credentials were read'
 
 it.live('a credential file holding no tokens asks for a login', () =>
