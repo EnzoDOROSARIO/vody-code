@@ -15,11 +15,12 @@ import type { ChildProcessSpawner } from 'effect/unstable/process'
 const execFileP = promisify(execFile)
 
 import { allowing } from './judging.ts'
-import { answer, handlers } from '#index.ts'
+import { Session, answer, handlers } from '#index.ts'
 import { Hooks, toolkit, toolkitLayer } from '#tools/index.ts'
 import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
+import type { InstructionsUnreadable } from '#prompt.ts'
 import type { Judge } from '#judge.ts'
 import type { Handlers } from '#tools/index.ts'
 
@@ -228,7 +229,9 @@ export type Script = (turn: number) => Array<Response.StreamPartEncoded>
 
 // The highest seam in the package: the model itself, replaced by a script. Nothing
 // below it is substituted, so the tools run for real against the workspace.
-export const scriptedModel = (script: Script): Layer.Layer<LanguageModel.LanguageModel> =>
+const scriptedLanguageModel = (
+  streamText: (turn: number) => Stream.Stream<Response.StreamPartEncoded, AiError.AiError>,
+): Layer.Layer<LanguageModel.LanguageModel> =>
   Layer.effect(
     LanguageModel.LanguageModel,
     Effect.gen(function* () {
@@ -240,11 +243,30 @@ export const scriptedModel = (script: Script): Layer.Layer<LanguageModel.Languag
           Stream.unwrap(
             Effect.map(
               Ref.getAndUpdate(turns, (turn) => turn + 1),
-              (turn) => Stream.fromIterable(script(turn)),
+              streamText,
             ),
           ),
       })
     }),
+  )
+
+export const scriptedModel = (script: Script): Layer.Layer<LanguageModel.LanguageModel> =>
+  scriptedLanguageModel((turn) => Stream.fromIterable(script(turn)))
+
+/**
+ * The scripted model with the call on one turn broken: the call itself fails the way a
+ * provider does, rather than streaming parts — a network drop, a rate limit, a sign-in
+ * gone stale. `broken` numbers the calls from none, the same numbering the script's
+ * turns use, so the turns after the broken one carry on with the script. Nothing below
+ * the model is substituted, so the tools still run for real against the workspace.
+ */
+export const brokenModel = (
+  script: Script,
+  broken: number,
+  failure: AiError.AiError,
+): Layer.Layer<LanguageModel.LanguageModel> =>
+  scriptedLanguageModel((turn) =>
+    turn === broken ? Stream.fail(failure) : Stream.fromIterable(script(turn)),
   )
 
 /**
@@ -257,7 +279,7 @@ export const conversed = (
   script: Script,
   questions: ReadonlyArray<string>,
   tools: Layer.Layer<NodeServices.NodeServices | Handlers>,
-): Effect.Effect<Array<Activity>, AiError.AiError> => {
+): Effect.Effect<Array<Activity>> => {
   const program = Effect.gen(function* () {
     const kit = yield* toolkit
     const session = yield* Chat.fromPrompt(Prompt.empty)
@@ -280,6 +302,45 @@ export const conversed = (
 }
 
 /**
+ * Put each question to the agent's session, in one conversation, and collect every
+ * Activity it reported along the way — through the callback the session hands them to,
+ * the way a screen receives them. The model is the one given, so a test that wants the
+ * Turn broken mid-way builds a `brokenModel`; the Workspace is whatever `tools`
+ * provides, so the tools the script reaches for run against it, through whatever
+ * `tools` puts at the seam.
+ */
+export const sessioned = (
+  model: Layer.Layer<LanguageModel.LanguageModel>,
+  questions: ReadonlyArray<string>,
+  tools: Layer.Layer<NodeServices.NodeServices | Handlers>,
+): Effect.Effect<Array<Activity>, InstructionsUnreadable> => {
+  const program = Effect.gen(function* () {
+    const agent = yield* Session
+
+    const seen: Array<Activity> = []
+
+    for (const question of questions) {
+      yield* agent.ask(question, (activity) => {
+        seen.push(activity)
+      })
+    }
+
+    return seen
+  })
+
+  return program.pipe(
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+    Effect.provide(
+      Session.layer.pipe(
+        Layer.provideMerge(tools),
+        Layer.provide(model),
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    ),
+  )
+}
+
+/**
  * Put each question to the agent in turn, in one conversation, and collect every
  * Activity it reported along the way. The directory the tests were started in is the
  * Workspace, so the tools the script reaches for run against this repository, through
@@ -289,5 +350,4 @@ export const asked = (
   script: Script,
   questions: ReadonlyArray<string>,
   hooks?: Hooks,
-): Effect.Effect<Array<Activity>, AiError.AiError> =>
-  conversed(script, questions, services(process.cwd(), hooks))
+): Effect.Effect<Array<Activity>> => conversed(script, questions, services(process.cwd(), hooks))

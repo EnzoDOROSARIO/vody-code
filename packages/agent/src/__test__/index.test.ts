@@ -1,6 +1,6 @@
 import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import type { AiError, Response } from 'effect/unstable/ai'
+import type { Response } from 'effect/unstable/ai'
 
 import { asked } from './testing.ts'
 
@@ -36,9 +36,8 @@ const bookkeeping: Script = () => [
   { type: 'text-end', id: 'text-1' },
 ]
 
-const asking = (
-  ...questions: ReadonlyArray<string>
-): Effect.Effect<Array<Activity>, AiError.AiError> => asked(answering, questions)
+const asking = (...questions: ReadonlyArray<string>): Effect.Effect<Array<Activity>> =>
+  asked(answering, questions)
 
 it.live('the loop runs the tool the model asks for and reports what came back', () =>
   Effect.gen(function* () {

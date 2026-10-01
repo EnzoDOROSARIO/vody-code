@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import type { Layer } from 'effect'
-import type { AiError, Response } from 'effect/unstable/ai'
+import type { Response } from 'effect/unstable/ai'
 
 import { answering, judging, rejected } from './judging.ts'
 import { conversed, judged, removeWorkspaces, workspace } from './testing.ts'
@@ -85,7 +85,7 @@ const talk = (
   steps: ReadonlyArray<Step>,
   judge: Layer.Layer<Judge> = judging([refusing]),
   questions: ReadonlyArray<string> = ['tidy up'],
-): Effect.Effect<Array<Activity>, AiError.AiError> =>
+): Effect.Effect<Array<Activity>> =>
   Effect.flatMap(workspace(), (root) => conversed(scripted(steps), questions, judged(root, judge)))
 
 const calls = (activities: ReadonlyArray<Activity>): number =>

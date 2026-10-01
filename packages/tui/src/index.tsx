@@ -1,35 +1,20 @@
-import { answer, chat, toolkit } from 'agent'
-import { Effect, Stream } from 'effect'
-
-import type { Activity, Handlers, InstructionsUnreadable } from 'agent'
-import type { FileSystem, Path } from 'effect'
-import type { LanguageModel } from 'effect/unstable/ai'
+import { Session } from 'agent'
+import { Effect } from 'effect'
 import { render } from 'ink'
 
 import { App } from './app.tsx'
 
 import type { Ask } from './app.tsx'
 
-// The workspace's instructions are read before Ink is mounted, so a file that cannot
-// be read is reported to a terminal that still belongs to the shell.
-export const main: Effect.Effect<
-  void,
-  InstructionsUnreadable,
-  FileSystem.FileSystem | Handlers | LanguageModel.LanguageModel | Path.Path
-> = Effect.scoped(
+export const main: Effect.Effect<void, never, Session> = Effect.scoped(
   Effect.gen(function* () {
-    const tools = yield* toolkit
-    const conversation = yield* chat
+    const agent = yield* Session
 
-    const services = yield* Effect.context<Handlers | LanguageModel.LanguageModel>()
-
-    // The agent hands back what it did; the App decides what any of it looks like.
-    const ask: Ask = (question, show) =>
-      Effect.runPromiseWith(services)(
-        Stream.runForEach(answer(conversation, tools, question), (activity: Activity) =>
-          Effect.sync(() => show(activity)),
-        ),
-      )
+    // The session hands back what it did; the App decides what any of it looks like. The
+    // ask is total, so leaving the runtime as a promise hands over nothing: the Turn's
+    // every ending is already an Activity the App was shown.
+    // oxlint-disable-next-line effecttsgo/run-effect-inside-effect -- the ask is a promise the App holds, outside any fiber of this one
+    const ask: Ask = (question, show) => Effect.runPromise(agent.ask(question, show))
 
     const app = yield* Effect.acquireRelease(
       Effect.sync(() => render(<App ask={ask} />)),
