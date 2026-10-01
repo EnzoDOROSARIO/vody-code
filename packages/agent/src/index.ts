@@ -7,6 +7,7 @@ import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { ToolCall } from './activity.ts'
 import * as Codex from './codex.ts'
+import * as Credentials from './credentials.ts'
 import * as Gates from './gates.ts'
 import { Judge } from './judge.ts'
 import { Request } from './request.ts'
@@ -218,11 +219,14 @@ export const handlers: Layer.Layer<
 /**
  * Everything the agent needs from this package. Both models need their credentials to
  * build, so a missing sign-in or a missing Judge key stops the agent before it starts.
+ * The credentials port is provided here, with the auth file as its adapter; the model
+ * adapter takes the port itself, so a test can put a different one in its place.
  */
 export const layer: Layer.Layer<
   LanguageModel.LanguageModel | Handlers,
-  Codex.CodexAuthenticationRequired | JudgeCredentialsRequired,
+  Credentials.CodexAuthenticationRequired | JudgeCredentialsRequired,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
-> = Layer.mergeAll(handlers.pipe(Layer.provide(Judge.layer)), Codex.layer).pipe(
-  Layer.provide(FetchHttpClient.layer),
-)
+> = Layer.mergeAll(
+  handlers.pipe(Layer.provide(Judge.layer)),
+  Codex.layer.pipe(Layer.provide(Credentials.fromAuthFile)),
+).pipe(Layer.provide(FetchHttpClient.layer))
