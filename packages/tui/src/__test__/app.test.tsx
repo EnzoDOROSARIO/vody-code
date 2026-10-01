@@ -1,10 +1,9 @@
 import { expect, test } from 'bun:test'
 import { Effect } from 'effect'
 import { Response } from 'effect/unstable/ai'
-import { renderToString } from 'ink'
 
 import { App, Prompt, Transcript, keystroke, transcribe, written } from '#app.tsx'
-import { BOLD, DIM, GREY_BACKGROUND, colourful } from './testing.ts'
+import { BOLD, DIM, GREY_BACKGROUND, colourful, plain } from './testing.ts'
 
 import { CommandRefused } from 'agent'
 
@@ -141,9 +140,7 @@ test('an Impasse stands out from the agent and its tools', () => {
   expect(agent).toBe('let me try')
   expect(ended).toContain(BOLD)
   expect(ended).not.toContain(GREY_BACKGROUND)
-  expect(renderToString(<Transcript lines={lines} />, { columns: 400 })).toBe(
-    `let me try\n${ENDED}`,
-  )
+  expect(plain(<Transcript lines={lines} />, 400)).toBe(`let me try\n${ENDED}`)
 })
 
 test('the reply is the agent speaking, not a tool', () => {
@@ -199,7 +196,7 @@ test('a fragment after a tool ran starts the line the answer is written on', () 
 })
 
 test('the transcript renders each line above the prompt', () => {
-  expect(renderToString(<Transcript lines={transcript} />)).toBe('> say hi\n\n$ echo hi\nhi')
+  expect(plain(<Transcript lines={transcript} />)).toBe('> say hi\n\n$ echo hi\nhi')
 })
 
 test('a tool line carries a grey background and dim text, and the rest carry neither', () => {
@@ -215,20 +212,20 @@ test('a tool line carries a grey background and dim text, and the rest carry nei
 // glob or a star in a question survives, and a tool's output is text some other program
 // chose and is no one's to reformat.
 test('the agent is read as markdown, and nobody else is', () => {
-  expect(
-    renderToString(<Transcript lines={[{ source: 'agent', text: 'see `a.ts` and **b**' }]} />),
-  ).toBe('see a.ts and b')
-  expect(
-    renderToString(<Transcript lines={[{ source: 'you', text: '> use *.ts and **glob**' }]} />),
-  ).toBe('> use *.ts and **glob**')
-  expect(renderToString(<Transcript lines={[{ source: 'result', text: '- not a list' }]} />)).toBe(
+  expect(plain(<Transcript lines={[{ source: 'agent', text: 'see `a.ts` and **b**' }]} />)).toBe(
+    'see a.ts and b',
+  )
+  expect(plain(<Transcript lines={[{ source: 'you', text: '> use *.ts and **glob**' }]} />)).toBe(
+    '> use *.ts and **glob**',
+  )
+  expect(plain(<Transcript lines={[{ source: 'result', text: '- not a list' }]} />)).toBe(
     '- not a list',
   )
 })
 
 test('an agent line with nothing in it takes up no room', () => {
   expect(
-    renderToString(
+    plain(
       <Transcript
         lines={[
           { source: 'agent', text: '' },
@@ -247,9 +244,7 @@ test('a chain of calls is broken up, while a call keeps the output under it', ()
     { source: 'call', text: 'read a.ts' },
   ]
 
-  expect(renderToString(<Transcript lines={chained} />)).toBe(
-    '\n$ echo hi\nexit 0\nhi\n\nread a.ts',
-  )
+  expect(plain(<Transcript lines={chained} />)).toBe('\n$ echo hi\nexit 0\nhi\n\nread a.ts')
 })
 
 test('the gap above a call is bare, not another row of grey', () => {
@@ -259,15 +254,15 @@ test('the gap above a call is bare, not another row of grey', () => {
 })
 
 test('the prompt shows what has been typed so far', () => {
-  expect(renderToString(<Prompt busy={false} value="who am I" />)).toBe('> who am I')
+  expect(plain(<Prompt busy={false} value="who am I" />)).toBe('> who am I')
 })
 
 test('the prompt waits while the agent is working', () => {
-  expect(renderToString(<Prompt busy value="" />)).toBe('…')
+  expect(plain(<Prompt busy value="" />)).toBe('…')
 })
 
 test('the app starts with an empty transcript and an empty prompt', () => {
-  expect(renderToString(<App ask={never} />)).toBe('>')
+  expect(plain(<App ask={never} />)).toBe('>')
 })
 
 test('a printable key lands at the end of what is typed', () => {

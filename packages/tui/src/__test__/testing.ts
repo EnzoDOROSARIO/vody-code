@@ -25,6 +25,25 @@ export const CYAN = '\u001B[36m'
 // two ever part — Ink moving to a major this package does not follow — the render
 // comes back bare, so the check below names that cause instead of leaving the
 // assertions underneath to fail as if the styling had been dropped.
+// The mirror image, for whatever is painted on the way to words a test is after. chalk
+// reads FORCE_COLOR from the environment when it loads, and a terminal that exports it
+// would paint escapes into every line, so the level is pinned at nothing around the
+// call, the same way `colourful` pins it at everything around a render.
+export const unpainted = <A>(paint: () => A): A => {
+  const level = chalk.level
+
+  chalk.level = 0
+
+  try {
+    return paint()
+  } finally {
+    chalk.level = level
+  }
+}
+
+export const plain = (node: ReactElement, columns = 80): string =>
+  unpainted(() => renderToString(node, { columns }))
+
 export const colourful = (node: ReactElement, columns = 80): string => {
   const level = chalk.level
 
