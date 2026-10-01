@@ -1,11 +1,11 @@
-# The same gates as `bun run check`, plus the test suite, in the order the
+# The same gates as `pnpm run check`, plus the test suite, in the order the
 # pre-commit hook runs them: each step only runs if the one before it passed.
 #
-# `bun run mutation` is deliberately not here: it is minutes rather than seconds,
+# `pnpm run mutation` is deliberately not here: it is minutes rather than seconds,
 # and for now it runs locally — by hand, and in the review workflow's `Mutation`
 # phase, which holds a commit until the survivors are dealt with.
 #
-# `bun install` runs the `prepare` script, which applies the `@effect/tsgo`
+# `pnpm install` runs the `prepare` script, which applies the `@effect/tsgo`
 # patch to the TypeScript and Oxlint binaries in `node_modules`. Lint and
 # typecheck depend on that patch, so nothing here may skip the install.
 name: CI
@@ -24,21 +24,26 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
         with:
-          bun-version: 1.4.2
+          version: 10.10.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Format
-        run: bun run format:check
-
-      - name: Typecheck
-        run: bun run typecheck
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: bun run lint
+        run: pnpm run lint
+
+      - name: Format
+        run: pnpm run format:check
+
+      - name: Typecheck
+        run: pnpm run typecheck
 
       - name: Test
-        run: bun test
+        run: pnpm run test

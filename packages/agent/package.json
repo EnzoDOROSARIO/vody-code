@@ -11,13 +11,17 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/ai-openai": "4.0.0-rc.116",
-    "@effect/ai-typesafe": "4.0.0-rc.116",
-    "@effect/platform-bun": "4.0.0-rc.116",
-    "effect": "4.0.0-rc.116"
+    "@effect/ai-openai": "catalog:",
+    "@effect/ai-typesafe": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
   }
 }

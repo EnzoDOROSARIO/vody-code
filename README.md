@@ -7,7 +7,7 @@ __     __         _          ____          _
                    |___/
 ```
 
-Bun workspace monorepo. Packages live in `packages/*`.
+PNPM workspace monorepo. Packages live in `packages/*`. Everything runs on Node.
 
 | Package | Description |
 | --- | --- |
@@ -17,19 +17,19 @@ Bun workspace monorepo. Packages live in `packages/*`.
 ## Commands
 
 ```sh
-bun install                    # install all workspace deps
-bun run typecheck              # tsc --noEmit in every package
-bun test                       # run all tests
-bun run agent                  # run the agent REPL in watch mode
-bun run tui                    # run the tui package in watch mode
-bun run --filter tui <script>  # run any script in one package (pipes output; not for the TUI)
+pnpm install                    # install all workspace deps
+pnpm run typecheck              # tsc -b across the workspace
+pnpm test                       # vitest run over every package
+pnpm run tui                    # run the tui package in watch mode (tsx watch)
+pnpm run start                  # build the tui bundle (tsdown) and run it on node
+pnpm --filter tui <script>      # run any script in one package
 ```
 
 TypeScript settings are shared from `tsconfig.base.json`; each package extends it.
 
 ## Vendored sources
 
-`repos/effect` is the Effect source at `effect@4.0.0-rc.115`, vendored with `git subtree` as read-only
+`repos/effect` is the Effect source at `effect@4.0.0-rc.116`, vendored with `git subtree` as read-only
 reference so agents can read the real implementation instead of guessing at a moving RC API. Update it with:
 
 ```sh

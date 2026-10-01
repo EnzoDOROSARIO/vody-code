@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { expect, it } from '@effect/vitest'
 
 import { toolkit } from '#tools/index.ts'
 
@@ -6,7 +6,7 @@ import { toolkit } from '#tools/index.ts'
 // other documentation it can go and read. That makes the wording part of the agent's
 // behaviour rather than a comment on it, so it is pinned here in full — a change to
 // what the model is told is a change to be made on purpose and reviewed as one.
-test('the tools describe themselves to the model in these words', () => {
+it('the tools describe themselves to the model in these words', () => {
   expect(
     Object.fromEntries(
       Object.entries(toolkit.tools).map(([name, tool]) => [name, tool.description]),

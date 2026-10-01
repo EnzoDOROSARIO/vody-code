@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { Response } from 'effect/unstable/ai'
 
@@ -50,7 +50,7 @@ const readFile: ToolResult = Response.toolResultPart({
   result: 'the whole file',
 })
 
-test('each tool call is announced in the wording that suits it', () => {
+it('each tool call is announced in the wording that suits it', () => {
   expect(
     transcribe({ id: 'c', name: 'bash', params: { command: 'echo hi' }, type: 'tool-call' }),
   ).toEqual({ source: 'call', text: '$ echo hi' })
@@ -78,12 +78,12 @@ test('each tool call is announced in the wording that suits it', () => {
   ).toEqual({ source: 'call', text: 'glob *.ts' })
 })
 
-test('bash quotes its output back, exit status first, and the others stay quiet', () => {
+it('bash quotes its output back, exit status first, and the others stay quiet', () => {
   expect(transcribe(ranBash)).toEqual({ source: 'result', text: 'exit 0\nhi' })
   expect(transcribe(readFile)).toBeUndefined()
 })
 
-test('a tool that failed says which tool, and why', () => {
+it('a tool that failed says which tool, and why', () => {
   const refused: ToolResult = Response.toolResultPart({
     encodedResult: {},
     id: 'call-3',
@@ -100,7 +100,7 @@ test('a tool that failed says which tool, and why', () => {
   })
 })
 
-test('a call the agent never ran says so in the same breath', () => {
+it('a call the agent never ran says so in the same breath', () => {
   const denied: ToolResult = Response.toolResultPart({
     encodedResult: {},
     id: 'call-4',
@@ -125,11 +125,11 @@ const ENDED =
 // A Turn that answered ends with the prompt coming back, and so does one that reached an
 // Impasse, so the second has to say so, or the person waits for an answer that is not
 // coming.
-test('a Turn that reached an Impasse says so, and says it is over', () => {
+it('a Turn that reached an Impasse says so, and says it is over', () => {
   expect(transcribe(impasse)).toEqual({ source: 'impasse', text: ENDED })
 })
 
-test('an Impasse stands out from the agent and its tools', () => {
+it('an Impasse stands out from the agent and its tools', () => {
   const lines: ReadonlyArray<Line> = [
     { source: 'agent', text: 'let me try' },
     { source: 'impasse', text: ENDED },
@@ -143,7 +143,7 @@ test('an Impasse stands out from the agent and its tools', () => {
   expect(plain(<Transcript lines={lines} />, 400)).toBe(`let me try\n${ENDED}`)
 })
 
-test('the reply is the agent speaking, not a tool', () => {
+it('the reply is the agent speaking, not a tool', () => {
   expect(transcribe({ id: 'text-1', text: 'done', type: 'reply' })).toEqual({
     id: 'text-1',
     source: 'agent',
@@ -154,7 +154,7 @@ test('the reply is the agent speaking, not a tool', () => {
 // The agent hands over its answer in the fragments it wrote, and the transcript is
 // where they are put back together: this is the whole of what makes a reply appear on
 // the screen as it is being written, rather than all at once when the turn is over.
-test('a fragment of the block being written lengthens that line', () => {
+it('a fragment of the block being written lengthens that line', () => {
   const opened = written([], { id: 'text-1', source: 'agent', text: 'it printed ' })
 
   expect(written(opened, { id: 'text-1', source: 'agent', text: 'hi' })).toEqual([
@@ -162,7 +162,7 @@ test('a fragment of the block being written lengthens that line', () => {
   ])
 })
 
-test('the next block of a reply starts a line of its own', () => {
+it('the next block of a reply starts a line of its own', () => {
   const said: ReadonlyArray<Line> = [{ id: 'text-1', source: 'agent', text: 'one' }]
 
   expect(written(said, { id: 'text-2', source: 'agent', text: 'two' })).toEqual([
@@ -171,7 +171,7 @@ test('the next block of a reply starts a line of its own', () => {
   ])
 })
 
-test('a line that arrives whole never joins the one above it', () => {
+it('a line that arrives whole never joins the one above it', () => {
   const said: ReadonlyArray<Line> = [{ source: 'agent', text: 'the turn broke' }]
 
   expect(written(said, { source: 'agent', text: 'and again' })).toEqual([
@@ -183,7 +183,7 @@ test('a line that arrives whole never joins the one above it', () => {
   ])
 })
 
-test('a fragment after a tool ran starts the line the answer is written on', () => {
+it('a fragment after a tool ran starts the line the answer is written on', () => {
   const said: ReadonlyArray<Line> = [
     { id: 'text-1', source: 'agent', text: 'let me look' },
     { source: 'result', text: 'exit 0' },
@@ -195,11 +195,11 @@ test('a fragment after a tool ran starts the line the answer is written on', () 
   ])
 })
 
-test('the transcript renders each line above the prompt', () => {
+it('the transcript renders each line above the prompt', () => {
   expect(plain(<Transcript lines={transcript} />)).toBe('> say hi\n\n$ echo hi\nhi')
 })
 
-test('a tool line carries a grey background and dim text, and the rest carry neither', () => {
+it('a tool line carries a grey background and dim text, and the rest carry neither', () => {
   const [you, , call, agent] = colourful(<Transcript lines={transcript} />).split('\n')
 
   expect(call).toContain(GREY_BACKGROUND)
@@ -211,7 +211,7 @@ test('a tool line carries a grey background and dim text, and the rest carry nei
 // Only the agent writes markdown. What you typed is shown back exactly as typed, so a
 // glob or a star in a question survives, and a tool's output is text some other program
 // chose and is no one's to reformat.
-test('the agent is read as markdown, and nobody else is', () => {
+it('the agent is read as markdown, and nobody else is', () => {
   expect(plain(<Transcript lines={[{ source: 'agent', text: 'see `a.ts` and **b**' }]} />)).toBe(
     'see a.ts and b',
   )
@@ -223,7 +223,7 @@ test('the agent is read as markdown, and nobody else is', () => {
   )
 })
 
-test('an agent line with nothing in it takes up no room', () => {
+it('an agent line with nothing in it takes up no room', () => {
   expect(
     plain(
       <Transcript
@@ -236,7 +236,7 @@ test('an agent line with nothing in it takes up no room', () => {
   ).toBe('> hi')
 })
 
-test('a chain of calls is broken up, while a call keeps the output under it', () => {
+it('a chain of calls is broken up, while a call keeps the output under it', () => {
   const chained: ReadonlyArray<Line> = [
     { source: 'call', text: '$ echo hi' },
     { source: 'result', text: 'exit 0' },
@@ -247,29 +247,29 @@ test('a chain of calls is broken up, while a call keeps the output under it', ()
   expect(plain(<Transcript lines={chained} />)).toBe('\n$ echo hi\nexit 0\nhi\n\nread a.ts')
 })
 
-test('the gap above a call is bare, not another row of grey', () => {
+it('the gap above a call is bare, not another row of grey', () => {
   const [, gap] = colourful(<Transcript lines={transcript} />).split('\n')
 
   expect(gap).toBe('')
 })
 
-test('the prompt shows what has been typed so far', () => {
+it('the prompt shows what has been typed so far', () => {
   expect(plain(<Prompt busy={false} value="who am I" />)).toBe('> who am I')
 })
 
-test('the prompt waits while the agent is working', () => {
+it('the prompt waits while the agent is working', () => {
   expect(plain(<Prompt busy value="" />)).toBe('…')
 })
 
-test('the app starts with an empty transcript and an empty prompt', () => {
+it('the app starts with an empty transcript and an empty prompt', () => {
   expect(plain(<App ask={never} />)).toBe('>')
 })
 
-test('a printable key lands at the end of what is typed', () => {
+it('a printable key lands at the end of what is typed', () => {
   expect(keystroke(false, chord({}), 'i', 'h')).toEqual({ submit: false, value: 'hi' })
 })
 
-test('backspace and delete each take the last character back', () => {
+it('backspace and delete each take the last character back', () => {
   expect(keystroke(false, chord({ backspace: true }), '', 'hi')).toEqual({
     submit: false,
     value: 'h',
@@ -280,25 +280,25 @@ test('backspace and delete each take the last character back', () => {
   })
 })
 
-test('backspace on an empty prompt leaves it empty', () => {
+it('backspace on an empty prompt leaves it empty', () => {
   expect(keystroke(false, chord({ backspace: true }), '', '')).toEqual({ submit: false, value: '' })
 })
 
-test('return submits what is typed and clears the prompt', () => {
+it('return submits what is typed and clears the prompt', () => {
   expect(keystroke(false, RETURN, '', 'who am I')).toEqual({ submit: true, value: '' })
 })
 
-test('return on blank input submits nothing and keeps the blank', () => {
+it('return on blank input submits nothing and keeps the blank', () => {
   expect(keystroke(false, RETURN, '', '   ')).toEqual({ submit: false, value: '   ' })
   expect(keystroke(false, RETURN, '', '')).toEqual({ submit: false, value: '' })
 })
 
-test('a modifier chord types nothing', () => {
+it('a modifier chord types nothing', () => {
   expect(keystroke(false, chord({ ctrl: true }), 'c', 'hi')).toEqual({ submit: false, value: 'hi' })
   expect(keystroke(false, chord({ meta: true }), 'v', 'hi')).toEqual({ submit: false, value: 'hi' })
 })
 
-test('every key is ignored while the agent is working', () => {
+it('every key is ignored while the agent is working', () => {
   expect(keystroke(true, chord({}), 'x', 'hi')).toEqual({ submit: false, value: 'hi' })
   expect(keystroke(true, RETURN, '', 'hi')).toEqual({ submit: false, value: 'hi' })
   expect(keystroke(true, chord({ backspace: true }), '', 'hi')).toEqual({

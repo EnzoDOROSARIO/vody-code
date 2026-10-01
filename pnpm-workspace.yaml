@@ -1,0 +1,44 @@
+packages:
+  - packages/*
+
+# The Effect RC moves with every release; one catalog holds the version every
+# package agrees on, so a bump is a one-line change here.
+catalog:
+  '@effect/ai-openai': 4.0.0-rc.116
+  '@effect/ai-typesafe': 4.0.0-rc.116
+  '@effect/platform-node': 4.0.0-rc.116
+  '@effect/vitest': 4.0.0-rc.116
+  '@types/node': ^24.6.0
+  effect: 4.0.0-rc.116
+  typescript: 7.0.2
+  vitest: 5.0.3
+
+overrides:
+  # `@effect/vitest` peers on `vitest`, and every test file imports the Vitest
+  # API through it — pin the peer to the version the catalog declares so one
+  # vitest copy exists in the graph. It is also the exact version
+  # `@vitest/coverage-v8` (pinned at root) peers on, so the runner, the API the
+  # tests import, the coverage provider and Stryker's runner all land on one
+  # store entry.
+  '@effect/vitest>vitest': 5.0.3
+  # Effect 4.0.0 stable is out, and a `^4.0.0-rc.116` range happily resolves to
+  # it — but the stable dist layout moved, and the stable packages crash against
+  # the rc the workspace pins (a vendored, read-only pin the app code follows).
+  # Hold every effect-family transitive edge onto the RC.
+  '@effect/platform-node>@effect/platform-node-shared': 4.0.0-rc.116
+  # vite-plus bundles its own lint/format stack at newer versions than the
+  # `@effect/tsgo` patch supports (it needs oxlint 1.81–1.82; vite-plus pins
+  # 1.85). The standalone pair is what `pnpm run lint` runs, so hold the copies
+  # vite-plus would bring onto the same versions and keep one graph-wide tool.
+  'vite-plus>oxlint': 1.82.0
+  'vite-plus>oxfmt': 0.68.0
+  'vite-plus>oxlint-tsgolint': 7.0.2001
+  'vite-plus>@oxlint/plugins': 1.82.0
+
+# vite-plus's nested vitest peers on the vite-plus core, whose 1.x numbering
+# vitest's peer range (^6 || ^7 || ^8) does not recognize. The standalone vitest
+# the tests run on peers on a real vite and is satisfied; only the nested copy
+# inside vite-plus is left with the warning, and nothing invokes it.
+peerDependencyRules:
+  allowedVersions:
+    'vitest>vite': '*'

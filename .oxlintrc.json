@@ -94,8 +94,9 @@
     "typeAware": true,
     "typeCheck": false
   },
-  // `bun:test` takes an async callback, so a test that awaits a run cannot be
-  // an `Effect.gen`. The rule is right everywhere else.
+  // The vitest hooks a test file still uses (an `afterEach` over plain node fs,
+  // say) are async callbacks that cannot be an `Effect.gen`. The rule is right
+  // everywhere else; test bodies that run effects are `it.live` and return one.
   "overrides": [
     {
       "files": ["**/*.test.ts", "**/*.test.tsx"],

@@ -1,6 +1,5 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, it } from '@effect/vitest'
 import { Effect, Option, Queue } from 'effect'
-
 import type { Schema } from 'effect'
 import { Decision } from 'effect/unstable/ai'
 
@@ -15,7 +14,7 @@ afterEach(removeWorkspaces)
 // What the Judge is told about a command is the whole of what it knows, with no other
 // documentation it could go and read, so the wording is part of how the Gate behaves.
 // It is pinned here in full: a change to what the Judge is told is made on purpose.
-test('the Judge is asked about a shell command in these words', () => {
+it('the Judge is asked about a shell command in these words', () => {
   const act = [
     'A coding agent is about to run a shell command on the person’s machine. `command` is the',
     'whole command line, exactly as the agent wrote it, and it runs as written, with sh -c, in',
@@ -88,71 +87,79 @@ test('the Judge is asked about a shell command in these words', () => {
 // The facts the Judge was handed for one command, exactly as the provider receives them.
 // The command runs inside a Turn when `request` is given, and outside any Turn otherwise.
 const factsFor = (root: string, command: string, request?: string) =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const asked = yield* Queue.unbounded<Schema.Json>()
+  Effect.gen(function* () {
+    const asked = yield* Queue.unbounded<Schema.Json>()
 
-      const judge = judging([answering(new Map([['serves_request', 1]]))], asked)
+    const judge = judging([answering(new Map([['serves_request', 1]]))], asked)
 
-      yield* outcome((tools) => tools.handle('bash', { command, timeout_seconds: 5 })).pipe(
-        Effect.provideService(Request, Option.fromUndefinedOr(request)),
-        // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-        Effect.provide(judged(root, judge)),
-      )
+    yield* outcome((tools) => tools.handle('bash', { command, timeout_seconds: 5 })).pipe(
+      Effect.provideService(Request, Option.fromUndefinedOr(request)),
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+      Effect.provide(judged(root, judge)),
+    )
 
-      const facts = yield* Queue.take(asked)
+    const facts = yield* Queue.take(asked)
 
-      // Asked once, about this command, and nothing more.
-      expect(yield* Queue.size(asked)).toBe(0)
+    // Asked once, about this command, and nothing more.
+    expect(yield* Queue.size(asked)).toBe(0)
 
-      return facts
-    }),
-  )
+    return facts
+  })
 
 // The facts are these four and no others: nothing from the conversation, and none of
 // the options the model called the tool with beyond the command itself.
-test('a command is put to the Judge exactly as written, with the Request exactly as typed', async () => {
-  const root = await workspace()
+it.live('a command is put to the Judge exactly as written, with the Request exactly as typed', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const command = "rm -rf dist  &&  bun run build # 'clean'"
+    const command = "rm -rf dist  &&  bun run build # 'clean'"
 
-  expect(await factsFor(root, command, 'Clean the build,  please')).toEqual({
-    command,
-    workspace: root,
-    perimeter: root,
-    request: 'Clean the build,  please',
-  })
-})
+    expect(yield* factsFor(root, command, 'Clean the build,  please')).toEqual({
+      command,
+      workspace: root,
+      perimeter: root,
+      request: 'Clean the build,  please',
+    })
+  }),
+)
 
-test('outside any Turn, the Judge is told there is no Request', async () => {
-  const root = await workspace()
+it.live('outside any Turn, the Judge is told there is no Request', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  expect(await factsFor(root, 'true')).toEqual({
-    command: 'true',
-    workspace: root,
-    perimeter: root,
-    request: null,
-  })
-})
+    expect(yield* factsFor(root, 'true')).toEqual({
+      command: 'true',
+      workspace: root,
+      perimeter: root,
+      request: null,
+    })
+  }),
+)
 
-test('with no repository above the Workspace, the Judge is told there is no Perimeter', async () => {
-  const directory = await onDisk(temporary)
+it.live('with no repository above the Workspace, the Judge is told there is no Perimeter', () =>
+  Effect.gen(function* () {
+    const directory = yield* Effect.promise(() => onDisk(temporary))
 
-  expect(await factsFor(directory, 'true', 'check')).toEqual({
-    command: 'true',
-    workspace: directory,
-    perimeter: null,
-    request: 'check',
-  })
-})
+    expect(yield* factsFor(directory, 'true', 'check')).toEqual({
+      command: 'true',
+      workspace: directory,
+      perimeter: null,
+      request: 'check',
+    })
+  }),
+)
 
 // The Perimeter is the working tree, found from the Workspace, so a Workspace below the
 // root still names the root.
-test('from a Workspace inside the working tree, the Judge is told the Perimeter is its root', async () => {
-  const root = await workspace()
+it.live(
+  'from a Workspace inside the working tree, the Judge is told the Perimeter is its root',
+  () =>
+    Effect.gen(function* () {
+      const root = yield* workspace()
 
-  expect(await factsFor(`${root}/inside`, 'true')).toMatchObject({
-    workspace: `${root}/inside`,
-    perimeter: root,
-  })
-})
+      expect(yield* factsFor(`${root}/inside`, 'true')).toMatchObject({
+        workspace: `${root}/inside`,
+        perimeter: root,
+      })
+    }),
+)

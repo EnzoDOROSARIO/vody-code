@@ -24,7 +24,7 @@ accepted while the agent is busy — before the judgement is any good would mean
 debugging both at once.
 
 **Judging each clause of a compound command separately.** Rejected: splitting destroys
-the context that makes `rm -rf node_modules && bun install` obviously routine, and
+the context that makes `rm -rf node_modules && pnpm install` obviously routine, and
 doing it correctly needs a shell parser, since quotes, subshells and heredocs have no
 operator to split on.
 

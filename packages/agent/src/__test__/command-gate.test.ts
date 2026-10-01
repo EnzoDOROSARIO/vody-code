@@ -1,11 +1,10 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, it } from '@effect/vitest'
 import { Effect, Option, Predicate, Queue } from 'effect'
-
 import type { Layer, Schema } from 'effect'
 import type { Toolkit } from 'effect/unstable/ai'
 
 import { answering, judging, rejected } from './judging.ts'
-import { judged, removeWorkspaces, workspace } from './testing.ts'
+import { fileExists, judged, readText, removeWorkspaces, workspace } from './testing.ts'
 import { Request } from '#request.ts'
 import { ActRefused, JudgeDidNotAnswer } from '#tools/index.ts'
 import { call, outcome, run } from '#tools/__test__/harness.ts'
@@ -42,111 +41,139 @@ const running = (command: string) => (tools: Toolkit.WithHandler<Tools>) =>
 const bash = (root: string, judge: Layer.Layer<Judge>, command: string) =>
   run(judged(root, judge), running(command))
 
-test('an ordinary build or test command runs as it always did', async () => {
-  const root = await workspace()
+it.live('an ordinary build or test command runs as it always did', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const ran = await call(root, running('echo built && true'))
+    const ran = yield* call(root, running('echo built && true'))
 
-  expect(ran.isFailure).toBe(false)
-  expect(ran.result).toBe('exit 0\nbuilt\n')
-})
+    expect(ran.isFailure).toBe(false)
+    expect(ran.result).toBe('exit 0\nbuilt\n')
+  }),
+)
 
-test('a destructive command that serves the Request runs', async () => {
-  const root = await workspace()
+it.live('a destructive command that serves the Request runs', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const ran = await bash(root, judgedAs({ serves: 0.9, irreversible: 0.9 }), 'rm inside/keep.txt')
+    const ran = yield* bash(
+      root,
+      judgedAs({ serves: 0.9, irreversible: 0.9 }),
+      'rm inside/keep.txt',
+    )
 
-  expect(ran.isFailure).toBe(false)
-  expect(ran.result).toBe('exit 0\n(no output)')
-  expect(await Bun.file(`${root}/inside/keep.txt`).exists()).toBe(false)
-})
+    expect(ran.isFailure).toBe(false)
+    expect(ran.result).toBe('exit 0\n(no output)')
+    expect(yield* Effect.promise(() => fileExists(`${root}/inside/keep.txt`))).toBe(false)
+  }),
+)
 
-test('the same destructive command unrelated to the Request is refused, does not run, and says why', async () => {
-  const root = await workspace()
+it.live(
+  'the same destructive command unrelated to the Request is refused, does not run, and says why',
+  () =>
+    Effect.gen(function* () {
+      const root = yield* workspace()
 
-  const ran = await bash(root, judgedAs({ serves: 0.1, irreversible: 0.9 }), 'rm inside/keep.txt')
+      const ran = yield* bash(
+        root,
+        judgedAs({ serves: 0.1, irreversible: 0.9 }),
+        'rm inside/keep.txt',
+      )
 
-  expect(ran.isFailure).toBe(true)
-  expect(ran.result).toBeInstanceOf(ActRefused)
-  // The refusal is the only account anyone gets of it, so it names the command as
-  // written and every axis that tripped, with its answer and its line.
-  expect(ran.result).toMatchObject({
-    tripped: [
-      { axis: 'serves_request', probability: 0.1, line: 'low', threshold: 0.3 },
-      { axis: 'irreversible', probability: 0.9, line: 'high', threshold: 0.7 },
-    ],
-    reason:
-      "bash will not run `rm inside/keep.txt`: the Judge's answers refuse it (serves_request at 0.1, below 0.3; irreversible at 0.9, at or above 0.7). The refusal is final, so do not run the same command again: do the work another way, or tell the person what you meant to run and why",
-  })
-  // What the model is handed is the refusal encoded, and it carries the same numbers.
-  expect(Predicate.isTagged(ran.encodedResult, 'ActRefused')).toBe(true)
-  expect(ran.encodedResult).toMatchObject({
-    tripped: [
-      { axis: 'serves_request', probability: 0.1, line: 'low', threshold: 0.3 },
-      { axis: 'irreversible', probability: 0.9, line: 'high', threshold: 0.7 },
-    ],
-  })
-  expect(await Bun.file(`${root}/inside/keep.txt`).text()).toBe('kept')
-})
+      expect(ran.isFailure).toBe(true)
+      expect(ran.result).toBeInstanceOf(ActRefused)
+      // The refusal is the only account anyone gets of it, so it names the command as
+      // written and every axis that tripped, with its answer and its line.
+      expect(ran.result).toMatchObject({
+        tripped: [
+          { axis: 'serves_request', probability: 0.1, line: 'low', threshold: 0.3 },
+          { axis: 'irreversible', probability: 0.9, line: 'high', threshold: 0.7 },
+        ],
+        reason:
+          "bash will not run `rm inside/keep.txt`: the Judge's answers refuse it (serves_request at 0.1, below 0.3; irreversible at 0.9, at or above 0.7). The refusal is final, so do not run the same command again: do the work another way, or tell the person what you meant to run and why",
+      })
+      // What the model is handed is the refusal encoded, and it carries the same numbers.
+      expect(Predicate.isTagged(ran.encodedResult, 'ActRefused')).toBe(true)
+      expect(ran.encodedResult).toMatchObject({
+        tripped: [
+          { axis: 'serves_request', probability: 0.1, line: 'low', threshold: 0.3 },
+          { axis: 'irreversible', probability: 0.9, line: 'high', threshold: 0.7 },
+        ],
+      })
+      expect(yield* Effect.promise(() => readText(`${root}/inside/keep.txt`))).toBe('kept')
+    }),
+)
 
-test('every danger that is high takes part in the refusal', async () => {
-  const root = await workspace()
+it.live('every danger that is high takes part in the refusal', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const ran = await bash(
-    root,
-    judgedAs({ serves: 0, irreversible: 0.8, beyond: 0.8, sends: 0.8 }),
-    'touch ran',
-  )
+    const ran = yield* bash(
+      root,
+      judgedAs({ serves: 0, irreversible: 0.8, beyond: 0.8, sends: 0.8 }),
+      'touch ran',
+    )
 
-  expect(ran.result).toMatchObject({
-    tripped: [
-      { axis: 'serves_request', probability: 0, line: 'low', threshold: 0.3 },
-      { axis: 'irreversible', probability: 0.8, line: 'high', threshold: 0.7 },
-      { axis: 'reaches_beyond_perimeter', probability: 0.8, line: 'high', threshold: 0.7 },
-      { axis: 'sends_data_off_machine', probability: 0.8, line: 'high', threshold: 0.7 },
-    ],
-  })
-  expect(await Bun.file(`${root}/ran`).exists()).toBe(false)
-})
+    expect(ran.result).toMatchObject({
+      tripped: [
+        { axis: 'serves_request', probability: 0, line: 'low', threshold: 0.3 },
+        { axis: 'irreversible', probability: 0.8, line: 'high', threshold: 0.7 },
+        { axis: 'reaches_beyond_perimeter', probability: 0.8, line: 'high', threshold: 0.7 },
+        { axis: 'sends_data_off_machine', probability: 0.8, line: 'high', threshold: 0.7 },
+      ],
+    })
+    expect(yield* Effect.promise(() => fileExists(`${root}/ran`))).toBe(false)
+  }),
+)
 
-test('a command that sends data off the machine is refused above its band, however plainly it was asked for', async () => {
-  const root = await workspace()
+it.live(
+  'a command that sends data off the machine is refused above its band, however plainly it was asked for',
+  () =>
+    Effect.gen(function* () {
+      const root = yield* workspace()
 
-  const ran = await bash(root, judgedAs({ serves: 1, sends: 0.93 }), 'touch ran')
+      const ran = yield* bash(root, judgedAs({ serves: 1, sends: 0.93 }), 'touch ran')
 
-  expect(ran.isFailure).toBe(true)
-  // Only the band tripped: the alignment was not low, so it took no part.
-  expect(ran.result).toMatchObject({
-    tripped: [
-      { axis: 'sends_data_off_machine', probability: 0.93, line: 'absolute', threshold: 0.9 },
-    ],
-    reason: expect.stringContaining(
-      '(sends_data_off_machine at 0.93, at or above the absolute band of 0.9)',
-    ),
-  })
-  expect(await Bun.file(`${root}/ran`).exists()).toBe(false)
-})
+      expect(ran.isFailure).toBe(true)
+      // Only the band tripped: the alignment was not low, so it took no part.
+      expect(ran.result).toMatchObject({
+        tripped: [
+          { axis: 'sends_data_off_machine', probability: 0.93, line: 'absolute', threshold: 0.9 },
+        ],
+        reason: expect.stringContaining(
+          '(sends_data_off_machine at 0.93, at or above the absolute band of 0.9)',
+        ),
+      })
+      expect(yield* Effect.promise(() => fileExists(`${root}/ran`))).toBe(false)
+    }),
+)
 
-test('a command that cannot be undone is refused above its band, however plainly it was asked for', async () => {
-  const root = await workspace()
+it.live(
+  'a command that cannot be undone is refused above its band, however plainly it was asked for',
+  () =>
+    Effect.gen(function* () {
+      const root = yield* workspace()
 
-  const ran = await bash(root, judgedAs({ serves: 1, irreversible: 0.97 }), 'touch ran')
+      const ran = yield* bash(root, judgedAs({ serves: 1, irreversible: 0.97 }), 'touch ran')
 
-  expect(ran.isFailure).toBe(true)
-  expect(ran.result).toMatchObject({
-    tripped: [{ axis: 'irreversible', probability: 0.97, line: 'absolute', threshold: 0.95 }],
-  })
-  expect(await Bun.file(`${root}/ran`).exists()).toBe(false)
-})
+      expect(ran.isFailure).toBe(true)
+      expect(ran.result).toMatchObject({
+        tripped: [{ axis: 'irreversible', probability: 0.97, line: 'absolute', threshold: 0.95 }],
+      })
+      expect(yield* Effect.promise(() => fileExists(`${root}/ran`))).toBe(false)
+    }),
+)
 
-test('a command that surely reaches beyond the Perimeter still runs when it was asked for', async () => {
-  const root = await workspace()
+it.live('a command that surely reaches beyond the Perimeter still runs when it was asked for', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const ran = await bash(root, judgedAs({ serves: 1, beyond: 1 }), 'touch ran')
+    const ran = yield* bash(root, judgedAs({ serves: 1, beyond: 1 }), 'touch ran')
 
-  expect(ran.isFailure).toBe(false)
-  expect(await Bun.file(`${root}/ran`).exists()).toBe(true)
-})
+    expect(ran.isFailure).toBe(false)
+    expect(yield* Effect.promise(() => fileExists(`${root}/ran`))).toBe(true)
+  }),
+)
 
 // Each line with an answer just below it, exactly on it, and just above it, decided both
 // ways across the three: a comparison off by one flips exactly one. The alignment's line
@@ -185,67 +212,73 @@ const boundaries: ReadonlyArray<readonly [string, Answers, boolean]> = [
   ['sending data just above its band refuses what was asked', { serves: 1, sends: 0.91 }, false],
 ]
 
-test.each(boundaries)('%s', async (_, given, allowed) => {
-  const root = await workspace()
+it.live.each(boundaries)('%s', ([, given, allowed]) =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const ran = await bash(root, judgedAs(given), 'touch ran')
+    const ran = yield* bash(root, judgedAs(given), 'touch ran')
 
-  expect(ran.isFailure).toBe(!allowed)
-  expect(await Bun.file(`${root}/ran`).exists()).toBe(allowed)
-})
+    expect(ran.isFailure).toBe(!allowed)
+    expect(yield* Effect.promise(() => fileExists(`${root}/ran`))).toBe(allowed)
+  }),
+)
 
 // Commands run in one program over one set of handlers, inside one Turn, with every
 // question the Judge is asked noted as it arrives.
 const judgedInOneTurn = (root: string, commands: ReadonlyArray<string>) =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const asked = yield* Queue.unbounded<Schema.Json>()
+  Effect.gen(function* () {
+    const asked = yield* Queue.unbounded<Schema.Json>()
 
-      const judge = judging([answers({ serves: 1 })], asked)
+    const judge = judging([answers({ serves: 1 })], asked)
 
-      const results = yield* Effect.forEach(commands, (command) => outcome(running(command))).pipe(
-        Effect.provideService(Request, Option.some('build it, then test it')),
-        // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-        Effect.provide(judged(root, judge)),
-      )
+    const results = yield* Effect.forEach(commands, (command) => outcome(running(command))).pipe(
+      Effect.provideService(Request, Option.some('build it, then test it')),
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+      Effect.provide(judged(root, judge)),
+    )
 
-      return { results, asked: yield* Queue.takeAll(asked) }
-    }),
-  )
+    return { results, asked: yield* Queue.takeAll(asked) }
+  })
 
-test('a compound command reaches the Judge once, whole and unsplit', async () => {
-  const root = await workspace()
+it.live('a compound command reaches the Judge once, whole and unsplit', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const command = 'echo one && echo two; echo three'
+    const command = 'echo one && echo two; echo three'
 
-  const { asked, results } = await judgedInOneTurn(root, [command])
+    const { asked, results } = yield* judgedInOneTurn(root, [command])
 
-  expect(asked).toHaveLength(1)
-  expect(asked[0]).toMatchObject({ command })
-  expect(results[0]?.result).toBe('exit 0\none\ntwo\nthree\n')
-})
+    expect(asked).toHaveLength(1)
+    expect(asked[0]).toMatchObject({ command })
+    expect(results[0]?.result).toBe('exit 0\none\ntwo\nthree\n')
+  }),
+)
 
-test('the Judge is asked about every command, a repeat of one already judged included', async () => {
-  const root = await workspace()
+it.live('the Judge is asked about every command, a repeat of one already judged included', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const { asked } = await judgedInOneTurn(root, ['true', 'true', 'echo harmless'])
+    const { asked } = yield* judgedInOneTurn(root, ['true', 'true', 'echo harmless'])
 
-  expect(asked).toHaveLength(3)
-  expect(asked).toMatchObject([
-    { command: 'true' },
-    { command: 'true' },
-    { command: 'echo harmless' },
-  ])
-})
+    expect(asked).toHaveLength(3)
+    expect(asked).toMatchObject([
+      { command: 'true' },
+      { command: 'true' },
+      { command: 'echo harmless' },
+    ])
+  }),
+)
 
-test('a Judge that does not answer refuses the command unjudged, and it does not run', async () => {
-  const root = await workspace()
+it.live('a Judge that does not answer refuses the command unjudged, and it does not run', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const ran = await bash(root, judging([rejected]), 'touch ran')
+    const ran = yield* bash(root, judging([rejected]), 'touch ran')
 
-  expect(ran.isFailure).toBe(true)
-  expect(ran.result).toBeInstanceOf(JudgeDidNotAnswer)
-  expect(ran.result).toMatchObject({ failure: 'CredentialsRejected' })
-  expect(Predicate.isTagged(ran.encodedResult, 'JudgeDidNotAnswer')).toBe(true)
-  expect(await Bun.file(`${root}/ran`).exists()).toBe(false)
-})
+    expect(ran.isFailure).toBe(true)
+    expect(ran.result).toBeInstanceOf(JudgeDidNotAnswer)
+    expect(ran.result).toMatchObject({ failure: 'CredentialsRejected' })
+    expect(Predicate.isTagged(ran.encodedResult, 'JudgeDidNotAnswer')).toBe(true)
+    expect(yield* Effect.promise(() => fileExists(`${root}/ran`))).toBe(false)
+  }),
+)

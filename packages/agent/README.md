@@ -22,7 +22,7 @@ which owns the credentials and refreshes them — this repo only reads them:
 
 ```sh
 codex login
-bun run agent   # from the repo root
+pnpm run tui    # from the repo root
 ```
 
 Ask it something, press Enter, and watch the `$ ` lines: those are the commands the model

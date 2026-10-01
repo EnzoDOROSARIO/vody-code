@@ -1,118 +1,139 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, it } from '@effect/vitest'
 import { Effect, Ref, Stream } from 'effect'
 
 import { call, run } from './harness.ts'
-import { outside, removeWorkspaces, unhooked, workspace } from '#__test__/testing.ts'
+import {
+  fileExists,
+  outside,
+  readText,
+  removeWorkspaces,
+  unhooked,
+  workspace,
+} from '#__test__/testing.ts'
 import { FileSystemRefused } from '#tools/index.ts'
 import type { Call } from '#tools/index.ts'
 
 afterEach(removeWorkspaces)
 
-test('a hook at the seam sees the call with its arguments in the tool’s own types', async () => {
-  const root = await workspace()
+it.live('a hook at the seam sees the call with its arguments in the tool’s own types', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const seen = await Effect.runPromise(Ref.make<Array<Call<'write_file'>>>([]))
+    const seen = yield* Ref.make<Array<Call<'write_file'>>>([])
 
-  const outcome = await call(
-    root,
-    (tools) => tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
-    { write_file: (made) => Ref.update(seen, (calls) => [...calls, made]) },
-  )
+    const outcome = yield* call(
+      root,
+      (tools) => tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
+      { write_file: (made) => Ref.update(seen, (calls) => [...calls, made]) },
+    )
 
-  expect(await Effect.runPromise(Ref.get(seen))).toEqual([
-    { name: 'write_file', params: { path: 'new.txt', content: 'hello' } },
-  ])
-  expect(outcome.isFailure).toBe(false)
-  expect(await Bun.file(`${root}/new.txt`).text()).toBe('hello')
-})
+    expect(yield* Ref.get(seen)).toEqual([
+      { name: 'write_file', params: { path: 'new.txt', content: 'hello' } },
+    ])
+    expect(outcome.isFailure).toBe(false)
+    expect(yield* Effect.promise(() => readText(`${root}/new.txt`))).toBe('hello')
+  }),
+)
 
-test('a hook that fails stops the call, and its failure is the tool’s answer', async () => {
-  const root = await workspace()
+it.live('a hook that fails stops the call, and its failure is the tool’s answer', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const outcome = await call(
-    root,
-    (tools) => tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
-    { write_file: () => new FileSystemRefused({ reason: 'stopped at the seam' }) },
-  )
+    const outcome = yield* call(
+      root,
+      (tools) => tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
+      { write_file: () => new FileSystemRefused({ reason: 'stopped at the seam' }) },
+    )
 
-  expect(outcome.isFailure).toBe(true)
-  expect(outcome.result).toBeInstanceOf(FileSystemRefused)
-  expect(outcome.result).toMatchObject({ reason: 'stopped at the seam' })
-  expect(await Bun.file(`${root}/new.txt`).exists()).toBe(false)
-})
+    expect(outcome.isFailure).toBe(true)
+    expect(outcome.result).toBeInstanceOf(FileSystemRefused)
+    expect(outcome.result).toMatchObject({ reason: 'stopped at the seam' })
+    expect(yield* Effect.promise(() => fileExists(`${root}/new.txt`))).toBe(false)
+  }),
+)
 
 // The same call answered twice, once through the Gate the agent runs and once through a
 // hook that succeeds, so what is compared is the seam's effect on the answer and not the
 // answer's wording, which is write_file's own business.
-test('a hook that does nothing changes nothing', async () => {
-  const gated = await workspace()
-  const hooked = await workspace()
+it.live('a hook that does nothing changes nothing', () =>
+  Effect.gen(function* () {
+    const gated = yield* workspace()
+    const hooked = yield* workspace()
 
-  const without = await call(gated, (tools) =>
-    tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
-  )
+    const without = yield* call(gated, (tools) =>
+      tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
+    )
 
-  const through = await call(
-    hooked,
-    (tools) => tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
-    { write_file: () => Effect.void },
-  )
+    const through = yield* call(
+      hooked,
+      (tools) => tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
+      { write_file: () => Effect.void },
+    )
 
-  expect(through).toEqual(without)
-  expect(await Bun.file(`${hooked}/new.txt`).text()).toBe('hello')
-})
+    expect(through).toEqual(without)
+    expect(yield* Effect.promise(() => readText(`${hooked}/new.txt`))).toBe('hello')
+  }),
+)
 
 // The seam with nothing provided at it, which is where its default lives: a call is
 // handed straight to the tool, and a write that the Gate would refuse goes ahead. That
 // is what the Gate's absence means, so it is asserted by a write the Gate refuses.
-test('with nothing at the seam, a tool runs unexamined', async () => {
-  const root = await workspace()
+it.live('with nothing at the seam, a tool runs unexamined', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const outcome = await run(unhooked(root), (tools) =>
-    tools.handle('write_file', { path: '../outside/new.txt', content: 'hello' }),
-  )
+    const outcome = yield* run(unhooked(root), (tools) =>
+      tools.handle('write_file', { path: '../outside/new.txt', content: 'hello' }),
+    )
 
-  expect(outcome.isFailure).toBe(false)
-  expect(await Bun.file(`${outside(root)}/new.txt`).text()).toBe('hello')
-})
+    expect(outcome.isFailure).toBe(false)
+    expect(yield* Effect.promise(() => readText(`${outside(root)}/new.txt`))).toBe('hello')
+  }),
+)
 
-test('every tool passes through the seam on its way in', async () => {
-  const root = await workspace()
+it.live('every tool passes through the seam on its way in', () =>
+  Effect.gen(function* () {
+    const root = yield* workspace()
 
-  const seen = await Effect.runPromise(Ref.make<Array<Call>>([]))
+    const seen = yield* Ref.make<Array<Call>>([])
 
-  const record = (made: Call): Effect.Effect<void> => Ref.update(seen, (calls) => [...calls, made])
+    const record = (made: Call): Effect.Effect<void> =>
+      Ref.update(seen, (calls) => [...calls, made])
 
-  await call(
-    root,
-    (tools) =>
-      Effect.gen(function* () {
-        yield* Stream.runDrain(yield* tools.handle('bash', { command: 'true' }))
+    yield* call(
+      root,
+      (tools) =>
+        Effect.gen(function* () {
+          yield* Stream.runDrain(yield* tools.handle('bash', { command: 'true' }))
 
-        yield* Stream.runDrain(
-          yield* tools.handle('edit_file', {
-            path: 'inside/keep.txt',
-            old_text: 'kept',
-            new_text: 'kept',
-          }),
-        )
+          yield* Stream.runDrain(
+            yield* tools.handle('edit_file', {
+              path: 'inside/keep.txt',
+              old_text: 'kept',
+              new_text: 'kept',
+            }),
+          )
 
-        yield* Stream.runDrain(yield* tools.handle('glob', { pattern: '**/*.txt' }))
+          yield* Stream.runDrain(yield* tools.handle('glob', { pattern: '**/*.txt' }))
 
-        yield* Stream.runDrain(
-          yield* tools.handle('read_file', { path: 'inside/keep.txt', offset: 1 }),
-        )
+          yield* Stream.runDrain(
+            yield* tools.handle('read_file', { path: 'inside/keep.txt', offset: 1 }),
+          )
 
-        return yield* tools.handle('write_file', { path: 'new.txt', content: 'hello' })
-      }),
-    { bash: record, edit_file: record, glob: record, read_file: record, write_file: record },
-  )
+          return yield* tools.handle('write_file', { path: 'new.txt', content: 'hello' })
+        }),
+      { bash: record, edit_file: record, glob: record, read_file: record, write_file: record },
+    )
 
-  expect(await Effect.runPromise(Ref.get(seen))).toEqual([
-    { name: 'bash', params: { command: 'true' } },
-    { name: 'edit_file', params: { path: 'inside/keep.txt', old_text: 'kept', new_text: 'kept' } },
-    { name: 'glob', params: { pattern: '**/*.txt' } },
-    { name: 'read_file', params: { path: 'inside/keep.txt', offset: 1 } },
-    { name: 'write_file', params: { path: 'new.txt', content: 'hello' } },
-  ])
-})
+    expect(yield* Ref.get(seen)).toEqual([
+      { name: 'bash', params: { command: 'true' } },
+      {
+        name: 'edit_file',
+        params: { path: 'inside/keep.txt', old_text: 'kept', new_text: 'kept' },
+      },
+      { name: 'glob', params: { pattern: '**/*.txt' } },
+      { name: 'read_file', params: { path: 'inside/keep.txt', offset: 1 } },
+      { name: 'write_file', params: { path: 'new.txt', content: 'hello' } },
+    ])
+  }),
+)

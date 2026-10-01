@@ -1,9 +1,9 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { layer } from 'agent'
-import { BunRuntime, BunServices } from '@effect/platform-bun'
+import { NodeRuntime, NodeServices } from '@effect/platform-node'
 import { Effect, Layer } from 'effect'
 
 import { main } from './index.tsx'
 
 // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this is the entry point
-BunRuntime.runMain(main.pipe(Effect.provide(layer.pipe(Layer.provideMerge(BunServices.layer)))))
+NodeRuntime.runMain(main.pipe(Effect.provide(layer.pipe(Layer.provideMerge(NodeServices.layer)))))

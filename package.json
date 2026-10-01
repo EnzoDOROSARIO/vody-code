@@ -1,31 +1,44 @@
 {
   "name": "vody-code",
   "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
   "type": "module",
   "scripts": {
-    "check": "bun run lint && bun run format:check && bun run typecheck",
+    "check": "pnpm run lint && pnpm run format:check && pnpm run typecheck",
     "typecheck": "tsc -b",
     "lint": "oxlint --disable-nested-config .",
     "lint:fix": "oxlint --disable-nested-config . --fix",
     "format": "oxfmt .",
     "format:check": "oxfmt . --check",
-    "test": "bun test",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "mutation": "stryker run",
-    "tui": "bun run --cwd packages/tui dev",
+    "build": "pnpm -r --filter './packages/*' build",
+    "start": "pnpm --filter tui start",
+    "tui": "pnpm --filter tui dev",
     "prepare": "effect-tsgo patch --typescript --oxlint && lefthook install"
+  },
+  "dependencies": {
+    "@vitest/coverage-v8": "5.0.3"
   },
   "devDependencies": {
     "@effect/tsgo": "0.45.0",
     "@oxlint/plugins": "1.82.0",
     "@stryker-mutator/core": "^10.0.0",
-    "@types/bun": "latest",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
+    "@types/node": "^24.6.0",
     "lefthook": "^2.1.14",
     "oxfmt": "0.68.0",
     "oxlint": "1.82.0",
     "oxlint-tsgolint": "7.0.2001",
-    "typescript": "7.0.2"
-  }
+    "tsdown": "^0.23.0",
+    "tsx": "^4.23.15",
+    "typescript": "7.0.2",
+    "vite": "^8.3.2",
+    "vite-plus": "1.0.0",
+    "vitest": "5.0.3"
+  },
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "packageManager": "pnpm@10.10.0"
 }

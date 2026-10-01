@@ -1,9 +1,18 @@
-import { BunServices } from '@effect/platform-bun'
-import { Effect, FileSystem, Layer, Ref, Stream } from 'effect'
+import { NodeServices } from '@effect/platform-node'
+import { Effect, Exit, FileSystem, Layer, Ref, Stream } from 'effect'
+import { execFile } from 'node:child_process'
+import * as Fs from 'node:fs/promises'
+import * as NodePath from 'node:path'
+import { promisify } from 'node:util'
+import * as Util from 'node:util'
+
 import { Chat, LanguageModel, Prompt } from 'effect/unstable/ai'
+
 import type { Path } from 'effect'
-import type { Response } from 'effect/unstable/ai'
+import type { AiError, Response } from 'effect/unstable/ai'
 import type { ChildProcessSpawner } from 'effect/unstable/process'
+
+const execFileP = promisify(execFile)
 
 import { allowing } from './judging.ts'
 import { answer, handlers } from '#index.ts'
@@ -22,9 +31,9 @@ const mounted = (
     ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
   >,
   workspace: string,
-): Layer.Layer<BunServices.BunServices | Handlers> =>
+): Layer.Layer<NodeServices.NodeServices | Handlers> =>
   tools.pipe(
-    Layer.provideMerge(BunServices.layer),
+    Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(Layer.succeed(Workspace, workspace)),
   )
 
@@ -36,7 +45,7 @@ const mounted = (
 export const judged = (
   workspace: string,
   judge: Layer.Layer<Judge>,
-): Layer.Layer<BunServices.BunServices | Handlers> =>
+): Layer.Layer<NodeServices.NodeServices | Handlers> =>
   mounted(handlers.pipe(Layer.provide(judge)), workspace)
 
 // Hooks are read where the toolkit layer is built, so they go in under it. A test that
@@ -49,7 +58,7 @@ export const judged = (
 export const services = (
   workspace: string,
   hooks?: Hooks,
-): Layer.Layer<BunServices.BunServices | Handlers> =>
+): Layer.Layer<NodeServices.NodeServices | Handlers> =>
   hooks === undefined
     ? judged(workspace, allowing)
     : mounted(toolkitLayer.pipe(Layer.provide(Layer.succeed(Hooks, hooks))), workspace)
@@ -57,12 +66,33 @@ export const services = (
 // The toolkit with nothing provided at the seam, so what the tools run through is the
 // reference's own default. The agent never builds this — `handlers` always puts the Gate
 // there — so the one test that shows what the empty seam does is the only way to it.
-export const unhooked = (workspace: string): Layer.Layer<BunServices.BunServices | Handlers> =>
+export const unhooked = (workspace: string): Layer.Layer<NodeServices.NodeServices | Handlers> =>
   mounted(toolkitLayer, workspace)
 
 export const onDisk = <A>(effect: Effect.Effect<A, never, FileSystem.FileSystem>): Promise<A> =>
   // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-  Effect.runPromise(effect.pipe(Effect.provide(BunServices.layer)))
+  Effect.runPromise(effect.pipe(Effect.provide(NodeServices.layer)))
+
+// Filesystem probes over plain node promises, for assertions and fixtures that sit
+// outside the effects a test runs: what `Bun.file` and `Bun.write` did for bun:test.
+// `write` reproduces `Bun.write`'s habit of creating the directories along the way.
+export const fileExists = async (path: string): Promise<boolean> =>
+  Fs.stat(path).then(
+    () => true,
+    () => false,
+  )
+
+export const readText = async (path: string): Promise<string> => Fs.readFile(path, 'utf8')
+
+export const write = (path: string, content: string | Uint8Array): Promise<void> =>
+  Fs.mkdir(NodePath.dirname(path), { recursive: true }).then(() => Fs.writeFile(path, content))
+
+// What a program's outcome looks like when it is printed rather than inspected:
+// a failure renders as its Cause with the errors' fields expanded, so a test can
+// assert on the words the failure carries. What `Bun.inspect(exit)` did for
+// bun:test, message included.
+export const rendered = (exit: Exit.Exit<unknown, unknown>): string =>
+  Exit.isFailure(exit) ? Util.inspect(exit.cause, { depth: 6 }) : 'the program succeeded'
 
 // Every directory handed out, so a test can ask for one without also owning its
 // removal. They outlive the test that made them by exactly as long as it takes the
@@ -116,9 +146,11 @@ const initialised: Effect.Effect<Repository, never, FileSystem.FileSystem> = Eff
     // here reads. The branch name is passed to this one command rather than read from
     // the developer's configuration, so the repository looks the same on every machine.
     yield* Effect.promise(() =>
-      Bun.$`git -c init.defaultBranch=main init -q --template=${scratch}/template repo`
-        .cwd(scratch)
-        .quiet(),
+      execFileP(
+        'git',
+        ['-c', 'init.defaultBranch=main', 'init', '-q', `--template=${scratch}/template`, 'repo'],
+        { cwd: scratch },
+      ),
     )
 
     const metadata = `${scratch}/repo/.git`
@@ -153,28 +185,32 @@ const repository: Effect.Effect<Repository, never, FileSystem.FileSystem> = Effe
 // symbolic link, and the Perimeter resolves the Workspace to its real path before it
 // walks up looking for `.git`, so a test that compares against the root it finds would
 // otherwise have to resolve the link itself.
-export const workspace = (): Promise<string> =>
-  onDisk(
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
+export const workspace = (): Effect.Effect<string> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
 
-      const base = yield* temporary
+    const base = yield* temporary
 
-      yield* Effect.promise(() => Bun.write(`${base}/work/inside/keep.txt`, 'kept'))
-      yield* Effect.promise(() => Bun.write(`${base}/outside/secret.txt`, 'secret'))
+    yield* fs.makeDirectory(`${base}/work/inside`, { recursive: true })
+    yield* fs.makeDirectory(`${base}/outside`, { recursive: true })
+    yield* fs.writeFile(`${base}/work/inside/keep.txt`, new TextEncoder().encode('kept'))
+    yield* fs.writeFile(`${base}/outside/secret.txt`, new TextEncoder().encode('secret'))
 
-      const { directories, files } = yield* repository
+    const { directories, files } = yield* repository
 
-      for (const directory of directories) {
-        yield* fs.makeDirectory(`${base}/work/.git/${directory}`, { recursive: true })
-      }
+    for (const directory of directories) {
+      yield* fs.makeDirectory(`${base}/work/.git/${directory}`, { recursive: true })
+    }
 
-      for (const [file, content] of files) {
-        yield* fs.writeFile(`${base}/work/.git/${file}`, content)
-      }
+    for (const [file, content] of files) {
+      yield* fs.writeFile(`${base}/work/.git/${file}`, content)
+    }
 
-      return yield* fs.realPath(`${base}/work`)
-    }).pipe(Effect.orDie),
+    return yield* fs.realPath(`${base}/work`)
+  }).pipe(
+    Effect.orDie,
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+    Effect.provide(NodeServices.layer),
   )
 
 // The fixture directory beside the workspace, by its real path: `workspace` hands out
@@ -220,8 +256,8 @@ export const scriptedModel = (script: Script): Layer.Layer<LanguageModel.Languag
 export const conversed = (
   script: Script,
   questions: ReadonlyArray<string>,
-  tools: Layer.Layer<BunServices.BunServices | Handlers>,
-): Promise<Array<Activity>> => {
+  tools: Layer.Layer<NodeServices.NodeServices | Handlers>,
+): Effect.Effect<Array<Activity>, AiError.AiError> => {
   const program = Effect.gen(function* () {
     const kit = yield* toolkit
     const session = yield* Chat.fromPrompt(Prompt.empty)
@@ -239,10 +275,8 @@ export const conversed = (
     return seen
   })
 
-  return Effect.runPromise(
-    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-    program.pipe(Effect.provide(Layer.mergeAll(scriptedModel(script), tools))),
-  )
+  // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+  return program.pipe(Effect.provide(Layer.mergeAll(scriptedModel(script), tools)))
 }
 
 /**
@@ -255,4 +289,5 @@ export const asked = (
   script: Script,
   questions: ReadonlyArray<string>,
   hooks?: Hooks,
-): Promise<Array<Activity>> => conversed(script, questions, services(process.cwd(), hooks))
+): Effect.Effect<Array<Activity>, AiError.AiError> =>
+  conversed(script, questions, services(process.cwd(), hooks))

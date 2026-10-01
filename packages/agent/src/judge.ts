@@ -29,7 +29,7 @@ export class JudgeCredentialsRequired extends Schema.TaggedError<JudgeCredential
   'JudgeCredentialsRequired',
   { reason: Schema.String },
 ) {
-  // This error reaches a terminal rather than the model, and `BunRuntime.runMain`
+  // This error reaches a terminal rather than the model, and `NodeRuntime.runMain`
   // prints only `cause.message`, so the message names what is missing and how to fix it.
   override get message(): string {
     return `the Judge has no credentials: set ${CREDENTIAL} to a TypeSafe API key (${this.reason})`

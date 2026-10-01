@@ -1,4 +1,0 @@
-# Vendored sources under repos/ ship their own test suites; keep the runner
-# inside our workspaces so `bun test` only sees our packages.
-[test]
-root = "packages"

@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { expect, it } from '@effect/vitest'
 
 import { casesHandled } from '#defects.ts'
 
@@ -20,6 +20,6 @@ const drawn = (suit: Suit): string => {
 // the compiler has been told these are all the suits there are.
 const dealt: Suit = JSON.parse('"clubs"')
 
-test('an unhandled case throws, quoting what arrived', () => {
+it('an unhandled case throws, quoting what arrived', () => {
   expect(() => drawn(dealt)).toThrow('unhandled case: "clubs"')
 })

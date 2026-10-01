@@ -1,5 +1,5 @@
-import { BunServices } from '@effect/platform-bun'
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, it } from '@effect/vitest'
+import { NodeServices } from '@effect/platform-node'
 import {
   Clock,
   ConfigProvider,
@@ -12,6 +12,8 @@ import {
   Schema,
 } from 'effect'
 import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
+import * as Fs from 'node:fs/promises'
+import * as Util from 'node:util'
 
 import { TestClock } from 'effect/testing'
 
@@ -22,6 +24,7 @@ import {
   withEncryptedReasoning,
 } from '#codex.ts'
 
+import { rendered, write } from './testing.ts'
 import type { CodexCredentials } from '#codex.ts'
 
 const ACCOUNT = 'fake-account-id'
@@ -55,38 +58,41 @@ const homes: Array<string> = []
 
 let made = 0
 
-const codexHome = async (authJson: string | undefined): Promise<string> => {
-  made += 1
+const codexHome = (authJson: string | undefined): Effect.Effect<string> =>
+  Effect.promise(async () => {
+    made += 1
 
-  const home = `/tmp/vody-codex-${made}`
+    const home = `/tmp/vody-codex-${made}`
 
-  homes.push(home)
+    homes.push(home)
 
-  if (authJson !== undefined) {
-    await Bun.write(`${home}/auth.json`, authJson)
-  }
+    if (authJson !== undefined) {
+      await write(`${home}/auth.json`, authJson)
+    }
 
-  return home
-}
+    return home
+  })
 
 afterEach(async () => {
   for (const home of homes.splice(0)) {
-    await Bun.$`rm -rf ${home}`.quiet()
+    await Fs.rm(home, { recursive: true, force: true })
   }
 })
 
-const read = (home: string, clock: Layer.Layer<never> = Layer.empty) =>
-  Effect.runPromiseExit(
-    credentials.pipe(
-      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-      Effect.provide(
-        Layer.mergeAll(
-          BunServices.layer,
-          ConfigProvider.layer(ConfigProvider.fromEnvRecord({ CODEX_HOME: home })),
-          clock,
-        ),
+const read = (
+  home: string,
+  clock: Layer.Layer<never> = Layer.empty,
+): Effect.Effect<Exit.Exit<CodexCredentials, CodexAuthenticationRequired>> =>
+  credentials.pipe(
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        ConfigProvider.layer(ConfigProvider.fromEnvRecord({ CODEX_HOME: home })),
+        clock,
       ),
     ),
+    Effect.exit,
   )
 
 type Stored = {
@@ -98,48 +104,58 @@ const stored = (tokens: Stored | null): string => JSON.stringify({ auth_mode: 'c
 
 const signedIn = (access: string): string => stored({ access_token: access, account_id: ACCOUNT })
 
-test('reads the token and account id the Codex CLI stored', async () => {
-  const access = token(inOneHour)
+it.live('reads the token and account id the Codex CLI stored', () =>
+  Effect.gen(function* () {
+    const access = token(inOneHour)
 
-  const exit = await read(await codexHome(signedIn(access)))
+    const exit = yield* read(yield* codexHome(signedIn(access)))
 
-  expect(Exit.isSuccess(exit)).toBe(true)
+    expect(Exit.isSuccess(exit)).toBe(true)
 
-  if (Exit.isSuccess(exit)) {
-    expect(Redacted.value(exit.value.accessToken)).toBe(access)
-    expect(Redacted.value(exit.value.accountId)).toBe(ACCOUNT)
-  }
-})
+    if (Exit.isSuccess(exit)) {
+      expect(Redacted.value(exit.value.accessToken)).toBe(access)
+      expect(Redacted.value(exit.value.accountId)).toBe(ACCOUNT)
+    }
+  }),
+)
 
-test('a credential renders as redacted, never as its secret', async () => {
-  const access = token(inOneHour)
+it.live('a credential renders as redacted, never as its secret', () =>
+  Effect.gen(function* () {
+    const access = token(inOneHour)
 
-  const exit = await read(await codexHome(signedIn(access)))
+    const exit = yield* read(yield* codexHome(signedIn(access)))
 
-  if (Exit.isSuccess(exit)) {
-    expect(Bun.inspect(exit.value.accessToken)).not.toContain(access)
-    expect(JSON.stringify(exit.value)).not.toContain(access)
-    expect(JSON.stringify(exit.value)).not.toContain(ACCOUNT)
-  }
-})
+    if (Exit.isSuccess(exit)) {
+      expect(Util.inspect(exit.value.accessToken)).not.toContain(access)
+      expect(JSON.stringify(exit.value)).not.toContain(access)
+      expect(JSON.stringify(exit.value)).not.toContain(ACCOUNT)
+    }
+  }),
+)
 
-test('a failure never quotes the token back', async () => {
-  const exit = await read(await codexHome(signedIn('not-a-jwt-but-still-a-secret')))
+it.live('a failure never quotes the token back', () =>
+  Effect.gen(function* () {
+    const exit = yield* read(yield* codexHome(signedIn('not-a-jwt-but-still-a-secret')))
 
-  expect(Bun.inspect(exit)).not.toContain('not-a-jwt-but-still-a-secret')
-})
+    expect(Util.inspect(exit)).not.toContain('not-a-jwt-but-still-a-secret')
+  }),
+)
 
-test('an expired session says to sign in again', async () => {
-  const exit = await read(await codexHome(signedIn(token(longExpired))))
+it.live('an expired session says to sign in again', () =>
+  Effect.gen(function* () {
+    const exit = yield* read(yield* codexHome(signedIn(token(longExpired))))
 
-  expect(Exit.isFailure(exit) && Bun.inspect(exit)).toContain('expired')
-})
+    expect(rendered(exit)).toContain('expired')
+  }),
+)
 
-test('no credential file asks for a login', async () => {
-  const exit = await read(await codexHome(undefined))
+it.live('no credential file asks for a login', () =>
+  Effect.gen(function* () {
+    const exit = yield* read(yield* codexHome(undefined))
 
-  expect(Exit.isFailure(exit) && Bun.inspect(exit)).toContain('codex login')
-})
+    expect(rendered(exit)).toContain('codex login')
+  }),
+)
 
 // The TestClock stands still at the epoch, so a token's `exp` is an offset from the
 // moment the expiry is measured at and the boundary can be hit dead on rather than
@@ -147,85 +163,111 @@ test('no credential file asks for a login', async () => {
 const readFrozen = (home: string) => read(home, TestClock.layer())
 
 const refusal = (exit: Exit.Exit<CodexCredentials, CodexAuthenticationRequired>): string =>
-  Exit.isFailure(exit) ? Bun.inspect(exit) : 'the credentials were read'
+  Exit.isFailure(exit) ? rendered(exit) : 'the credentials were read'
 
-test('a credential file holding no tokens asks for a login', async () => {
-  const exit = await read(await codexHome(JSON.stringify({ auth_mode: 'chatgpt' })))
+it.live('a credential file holding no tokens asks for a login', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(yield* codexHome(JSON.stringify({ auth_mode: 'chatgpt' })))
 
-  expect(refusal(exit)).toContain('codex login')
-})
+    expect(refusal(exit)).toContain('codex login')
+  }),
+)
 
-test('a credential file whose tokens were cleared asks for a login', async () => {
-  const exit = await read(await codexHome(stored(null)))
+it.live('a credential file whose tokens were cleared asks for a login', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(yield* codexHome(stored(null)))
 
-  expect(refusal(exit)).toContain('codex login')
-})
+    expect(refusal(exit)).toContain('codex login')
+  }),
+)
 
-test('a credential file of another shape entirely is reported as such', async () => {
-  const exit = await read(await codexHome('{"tokens":{"access_token":42}}'))
+it.live('a credential file of another shape entirely is reported as such', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(yield* codexHome('{"tokens":{"access_token":42}}'))
 
-  expect(refusal(exit)).toContain('not in the expected shape')
-})
+    expect(refusal(exit)).toContain('not in the expected shape')
+  }),
+)
 
-test('a stored token that is not a JWT is reported as such', async () => {
-  const exit = await read(await codexHome(signedIn('not-a-jwt')))
+it.live('a stored token that is not a JWT is reported as such', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(yield* codexHome(signedIn('not-a-jwt')))
 
-  expect(refusal(exit)).toContain('not a JWT')
-})
+    expect(refusal(exit)).toContain('not a JWT')
+  }),
+)
 
-test('a stored token whose claims will not decode is reported as such', async () => {
-  const exit = await read(await codexHome(signedIn(`header.${Encoding.encodeBase64Url('{')}.`)))
+it.live('a stored token whose claims will not decode is reported as such', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(
+      yield* codexHome(signedIn(`header.${Encoding.encodeBase64Url('{')}.`)),
+    )
 
-  expect(refusal(exit)).toContain('missing its claims')
-})
+    expect(refusal(exit)).toContain('missing its claims')
+  }),
+)
 
-test('falls back to the account id inside the token when none is stored beside it', async () => {
-  const exit = await read(await codexHome(stored({ access_token: token(inOneHour) })))
+it.live('falls back to the account id inside the token when none is stored beside it', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(yield* codexHome(stored({ access_token: token(inOneHour) })))
 
-  expect(Exit.isSuccess(exit) && Redacted.value(exit.value.accountId)).toBe(ACCOUNT)
-})
+    expect(Exit.isSuccess(exit) && Redacted.value(exit.value.accountId)).toBe(ACCOUNT)
+  }),
+)
 
-test('falls back to the account id inside the token when the stored one was cleared', async () => {
-  const exit = await read(
-    await codexHome(stored({ access_token: token(inOneHour), account_id: null })),
-  )
+it.live('falls back to the account id inside the token when the stored one was cleared', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(
+      yield* codexHome(stored({ access_token: token(inOneHour), account_id: null })),
+    )
 
-  expect(Exit.isSuccess(exit) && Redacted.value(exit.value.accountId)).toBe(ACCOUNT)
-})
+    expect(Exit.isSuccess(exit) && Redacted.value(exit.value.accountId)).toBe(ACCOUNT)
+  }),
+)
 
-test('prefers the account id stored beside the token to the one inside it', async () => {
-  const exit = await read(
-    await codexHome(stored({ access_token: token(inOneHour), account_id: 'stored-account' })),
-  )
+it.live('prefers the account id stored beside the token to the one inside it', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(
+      yield* codexHome(stored({ access_token: token(inOneHour), account_id: 'stored-account' })),
+    )
 
-  expect(Exit.isSuccess(exit) && Redacted.value(exit.value.accountId)).toBe('stored-account')
-})
+    expect(Exit.isSuccess(exit) && Redacted.value(exit.value.accountId)).toBe('stored-account')
+  }),
+)
 
-test('a login that named no account anywhere is not enough to call with', async () => {
-  const exit = await read(await codexHome(stored({ access_token: anonymous(inOneHour) })))
+it.live('a login that named no account anywhere is not enough to call with', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(yield* codexHome(stored({ access_token: anonymous(inOneHour) })))
 
-  expect(refusal(exit)).toContain('no ChatGPT account id')
-})
+    expect(refusal(exit)).toContain('no ChatGPT account id')
+  }),
+)
 
-test('a cleared account id with none in the token is not enough to call with', async () => {
-  const exit = await read(
-    await codexHome(stored({ access_token: anonymous(inOneHour), account_id: null })),
-  )
+it.live('a cleared account id with none in the token is not enough to call with', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(
+      yield* codexHome(stored({ access_token: anonymous(inOneHour), account_id: null })),
+    )
 
-  expect(refusal(exit)).toContain('no ChatGPT account id')
-})
+    expect(refusal(exit)).toContain('no ChatGPT account id')
+  }),
+)
 
-test('a session is expired the moment it expires, not a second later', async () => {
-  const exit = await readFrozen(await codexHome(signedIn(token(0))))
+it.live('a session is expired the moment it expires, not a second later', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(yield* codexHome(signedIn(token(0))))
 
-  expect(refusal(exit)).toContain('expired')
-})
+    expect(refusal(exit)).toContain('expired')
+  }),
+)
 
-test('a session with a second left on it is still good', async () => {
-  const exit = await readFrozen(await codexHome(signedIn(token(1))))
+it.live('a session with a second left on it is still good', () =>
+  Effect.gen(function* () {
+    const exit = yield* readFrozen(yield* codexHome(signedIn(token(1))))
 
-  expect(Exit.isSuccess(exit)).toBe(true)
-})
+    expect(Exit.isSuccess(exit)).toBe(true)
+  }),
+)
 
 const Body = Schema.Struct({
   include: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -250,14 +292,14 @@ const responses = (body: typeof Body.Type): HttpClientRequest.HttpClientRequest 
     body,
   )
 
-test('asks for encrypted reasoning', () => {
+it('asks for encrypted reasoning', () => {
   const request = withEncryptedReasoning(responses({ model: 'gpt-5.6-sol' }))
 
   expect(sent(request).include).toEqual(['reasoning.encrypted_content'])
   expect(sent(request).model).toBe('gpt-5.6-sol')
 })
 
-test('adds to an existing include list rather than replacing it', () => {
+it('adds to an existing include list rather than replacing it', () => {
   const request = withEncryptedReasoning(responses({ include: ['message.output_text.logprobs'] }))
 
   expect(sent(request).include).toEqual([
@@ -266,7 +308,7 @@ test('adds to an existing include list rather than replacing it', () => {
   ])
 })
 
-test('does not add the same include twice', () => {
+it('does not add the same include twice', () => {
   const request = withEncryptedReasoning(responses({ include: ['reasoning.encrypted_content'] }))
 
   expect(sent(request).include).toEqual(['reasoning.encrypted_content'])
@@ -291,54 +333,60 @@ const recorder = () => {
   return { client, sent: () => seen }
 }
 
-test('every request carries the stored credentials and names this client', async () => {
-  const recorded = recorder()
+it.live('every request carries the stored credentials and names this client', () =>
+  Effect.gen(function* () {
+    const recorded = recorder()
 
-  const client = authenticate(Effect.succeed(credential('access-token', 'account-id')))(
-    recorded.client,
-  )
+    const client = authenticate(Effect.succeed(credential('access-token', 'account-id')))(
+      recorded.client,
+    )
 
-  await Effect.runPromise(client.execute(responses({ model: 'gpt-5.6-sol' })))
+    yield* client.execute(responses({ model: 'gpt-5.6-sol' }))
 
-  expect(recorded.sent()?.headers).toMatchObject({
-    authorization: 'Bearer access-token',
-    'chatgpt-account-id': 'account-id',
-    originator: 'vody-code',
-  })
-})
+    expect(recorded.sent()?.headers).toMatchObject({
+      authorization: 'Bearer access-token',
+      'chatgpt-account-id': 'account-id',
+      originator: 'vody-code',
+    })
+  }),
+)
 
-test('a request goes out asking for encrypted reasoning', async () => {
-  const recorded = recorder()
+it.live('a request goes out asking for encrypted reasoning', () =>
+  Effect.gen(function* () {
+    const recorded = recorder()
 
-  const client = authenticate(Effect.succeed(credential('access-token', 'account-id')))(
-    recorded.client,
-  )
+    const client = authenticate(Effect.succeed(credential('access-token', 'account-id')))(
+      recorded.client,
+    )
 
-  await Effect.runPromise(client.execute(responses({ model: 'gpt-5.6-sol' })))
+    yield* client.execute(responses({ model: 'gpt-5.6-sol' }))
 
-  const request = recorded.sent()
+    const request = recorded.sent()
 
-  expect(request === undefined ? [] : sent(request).include).toEqual([
-    'reasoning.encrypted_content',
-  ])
-})
+    expect(request === undefined ? [] : sent(request).include).toEqual([
+      'reasoning.encrypted_content',
+    ])
+  }),
+)
 
-test('a request is never sent when there are no credentials to sign it with', async () => {
-  const recorded = recorder()
+it.live('a request is never sent when there are no credentials to sign it with', () =>
+  Effect.gen(function* () {
+    const recorded = recorder()
 
-  const client = authenticate(
-    Effect.fail(new CodexAuthenticationRequired({ reason: 'the test refuses to sign in' })),
-  )(recorded.client)
+    const client = authenticate(
+      Effect.fail(new CodexAuthenticationRequired({ reason: 'the test refuses to sign in' })),
+    )(recorded.client)
 
-  const exit = await Effect.runPromiseExit(client.execute(responses({ model: 'gpt-5.6-sol' })))
+    const exit = yield* Effect.exit(client.execute(responses({ model: 'gpt-5.6-sol' })))
 
-  expect(Exit.isFailure(exit) && Bun.inspect(exit)).toContain('the test refuses to sign in')
-  expect(recorded.sent()).toBeUndefined()
-})
+    expect(rendered(exit)).toContain('the test refuses to sign in')
+    expect(recorded.sent()).toBeUndefined()
+  }),
+)
 
 // A body handed over as bytes rather than as text carries no `text` of its own, which
 // is the only way the decode in `sent` and in `withEncryptedReasoning` is reached.
-test('a body that arrived as bytes is read and added to all the same', () => {
+it('a body that arrived as bytes is read and added to all the same', () => {
   const request = withEncryptedReasoning(
     HttpClientRequest.bodyUint8Array(
       HttpClientRequest.post('https://chatgpt.com/backend-api/codex/responses'),
@@ -351,7 +399,7 @@ test('a body that arrived as bytes is read and added to all the same', () => {
   expect(sent(request).model).toBe('gpt-5.6-sol')
 })
 
-test('a request with no body of its own is left exactly as it came', () => {
+it('a request with no body of its own is left exactly as it came', () => {
   const request = HttpClientRequest.get('https://chatgpt.com/backend-api/codex/responses')
 
   expect(withEncryptedReasoning(request)).toBe(request)
