@@ -26,7 +26,15 @@ export default defineConfig({
       'packages/tui/src/__test__/app.test.tsx',
       'packages/tui/src/__test__/defects.test.ts',
       'packages/tui/src/markdown/__test__/markdown.test.tsx',
-      // The tools' descriptions and the Workspace reference, read out of memory.
+      // The loop's own behaviour: the model scripted at the top seam and the tools
+      // answering from cans behind the seam's hooks, so no file is touched, no git is
+      // walked, and no command is run — the counting, the fragments, the Request's flow,
+      // and the Verdict a Gate derives, all in memory.
+      'packages/agent/src/__test__/index.test.ts',
+      'packages/agent/src/__test__/refusals.test.ts',
+      'packages/agent/src/__test__/request.test.ts',
+      'packages/agent/src/__test__/verdict.test.ts',
+      // Pure seam-work beside the tools: their descriptions, in memory.
       'packages/agent/src/tools/__test__/descriptions.test.ts',
       'packages/agent/src/__test__/workspace.test.ts',
     ],

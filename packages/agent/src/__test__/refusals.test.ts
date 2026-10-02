@@ -1,29 +1,56 @@
-import { afterEach, expect, it } from '@effect/vitest'
+import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import type { Layer } from 'effect'
 import type { Response } from 'effect/unstable/ai'
 
-import { answering, judging, rejected } from './judging.ts'
-import { judged, removeWorkspaces, scriptedModel, sessioned, workspace } from './testing.ts'
-import { ActRefused, JudgeDidNotAnswer } from '#tools/index.ts'
+import { rehearsed, scriptedModel } from './testing.ts'
+import { ActRefused, JudgeDidNotAnswer, TextNotFound } from '#tools/index.ts'
 
-import type { Reply } from './judging.ts'
 import type { Script } from './testing.ts'
 import type { Activity } from '#activity.ts'
-import type { InstructionsUnreadable } from '#prompt.ts'
-import type { Judge } from '#judge.ts'
+import type { Hooks } from '#tools/index.ts'
 
-afterEach(removeWorkspaces)
+// What a Gate's answer looks like at the seam the loop reads: a failure the tool has
+// declared, which the counting reads by tag and nothing else about it matters. A test
+// plays one of these at the seam for whichever acts it has opinions about; every tool
+// with no hook in the play runs its can.
+const refusal = new ActRefused({
+  reason: 'the Judge answered no',
+  tripped: [{ axis: 'serves_request', line: 'low', probability: 0, threshold: 0.3 }],
+})
 
-// A write the Judge finds unrequested and dangerous, which it refuses. Nothing in a
-// command's questions is dangerous by these answers, so the same Judge lets `bash` run:
-// the refusing is about writes outside, and every other gated act is allowed.
-const refusing: Reply = answering(
-  new Map([
-    ['serves_request', 0],
-    ['affects_machine_or_other_projects', 1],
-  ]),
-)
+const unanswered = new JudgeDidNotAnswer({
+  failure: 'Other',
+  reason: 'the play of a Judge that answered nothing',
+})
+
+// The whole write Gate's answer, played in: the writes outside the working tree are
+// refused, and the ones inside go without asking, as the real one lets a write inside
+// the Perimeter pass unjudged. The command Gate takes no part in any of these tests
+// unless one of them says it does.
+const writesOutsideRefused: Hooks = {
+  write_file: ({ params }) =>
+    params.path.startsWith('../outside') ? Effect.fail(refusal) : Effect.void,
+}
+
+// The command Gate's answer on one question, played in full: a command the Judge reads
+// as irreversible is refused however it was asked for.
+const commandsRefused: Hooks = {
+  bash: () => Effect.fail(refusal),
+}
+
+// The first act judged and refused, every act after it refused with no answer at all:
+// what the real Gates and Judge give when the Judge limps back one mistake and stops.
+const judgedOnce: Hooks = (() => {
+  let judged = 0
+
+  return {
+    write_file: () => {
+      judged += 1
+
+      return judged === 1 ? Effect.fail(refusal) : Effect.fail(unanswered)
+    },
+  }
+})()
 
 type Part = Response.StreamPartEncoded
 
@@ -37,7 +64,7 @@ const call = (
   params: Readonly<Record<string, string>>,
 ): Array<Part> => [{ type: 'tool-call', id: `call-${turn}-${slot}`, name, params }]
 
-/** A write past the root, into the fixture beside the working tree: outside the Perimeter. */
+/** A write past the root, acted as if outside the working tree. */
 const writeOutside = (turn: number, slot: number): Array<Part> =>
   call(turn, slot, 'write_file', { path: `../outside/${turn}-${slot}.txt`, content: 'hello' })
 
@@ -45,16 +72,16 @@ const writeInside = (turn: number, slot: number): Array<Part> =>
   call(turn, slot, 'write_file', { path: `inside/${turn}-${slot}.txt`, content: 'hello' })
 
 const editInside = (turn: number, slot: number): Array<Part> =>
-  call(turn, slot, 'edit_file', { path: 'inside/keep.txt', old_text: 'kept', new_text: 'kept' })
+  call(turn, slot, 'edit_file', { path: 'inside/file.txt', old_text: 'kept', new_text: 'kept' })
 
 const editMissing = (turn: number, slot: number): Array<Part> =>
-  call(turn, slot, 'edit_file', { path: 'inside/keep.txt', old_text: 'absent', new_text: 'x' })
+  call(turn, slot, 'edit_file', { path: 'inside/file.txt', old_text: 'absent', new_text: 'x' })
 
 const run = (turn: number, slot: number): Array<Part> =>
   call(turn, slot, 'bash', { command: 'echo hi' })
 
 const read = (turn: number, slot: number): Array<Part> =>
-  call(turn, slot, 'read_file', { path: 'inside/keep.txt' })
+  call(turn, slot, 'read_file', { path: 'inside/file.txt' })
 
 const search = (turn: number, slot: number): Array<Part> =>
   call(turn, slot, 'glob', { pattern: '**/*.txt' })
@@ -82,21 +109,28 @@ const together =
 const repeated = (step: Step, times: number): ReadonlyArray<Step> =>
   Array.from({ length: times }, () => step)
 
+// An edit whose old text is simply not in the file: what a real edit_file says when
+// nothing matches, which is the tool's mistake and not any Gate's answer.
+const playedWithAnEditThatMisses: Hooks = {
+  ...writesOutsideRefused,
+  edit_file: ({ params }) =>
+    params.old_text === 'kept'
+      ? Effect.void
+      : Effect.fail(new TextNotFound({ path: params.path, reason: 'nothing matches it' })),
+}
+
 const talk = (
   steps: ReadonlyArray<Step>,
-  judge: Layer.Layer<Judge> = judging([refusing]),
+  hooks: Hooks = {},
   requests: ReadonlyArray<string> = ['tidy up'],
-): Effect.Effect<Array<Activity>, InstructionsUnreadable> =>
-  Effect.flatMap(workspace, (root) =>
-    sessioned(scriptedModel(scripted(steps)), requests, judged(root, judge)),
-  )
+): Effect.Effect<Array<Activity>> => rehearsed(scriptedModel(scripted(steps)), requests, hooks)
 
 const calls = (activities: ReadonlyArray<Activity>): number =>
   activities.filter((activity) => activity.type === 'tool-call').length
 
 it.live('a model that keeps writing outside is stopped after the third refusal', () =>
   Effect.gen(function* () {
-    const activities = yield* talk(repeated(writeOutside, 10))
+    const activities = yield* talk(repeated(writeOutside, 10), writesOutsideRefused)
 
     expect(calls(activities)).toBe(3)
     expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
@@ -110,7 +144,7 @@ const closed = (activities: ReadonlyArray<Activity>): boolean =>
 // here: two refusals leave the Turn going, and the model answers as it meant to.
 it.live('two refusals leave the Turn going to its answer', () =>
   Effect.gen(function* () {
-    const activities = yield* talk(repeated(writeOutside, 2))
+    const activities = yield* talk(repeated(writeOutside, 2), writesOutsideRefused)
 
     expect(calls(activities)).toBe(2)
     expect(closed(activities)).toBe(false)
@@ -121,7 +155,7 @@ it.live('two refusals leave the Turn going to its answer', () =>
 // Nothing follows the report: no fourth call, and no reply the model never gave.
 it.live('the end of a Turn by refusal is its last Activity', () =>
   Effect.gen(function* () {
-    const activities = yield* talk(repeated(writeOutside, 10))
+    const activities = yield* talk(repeated(writeOutside, 10), writesOutsideRefused)
 
     expect(activities.filter((activity) => activity.type === 'impasse')).toHaveLength(1)
     expect(activities.filter((activity) => activity.type === 'reply')).toEqual([])
@@ -140,15 +174,10 @@ it.live('an allowed gated act clears the count', () =>
   Effect.gen(function* () {
     const twice = repeated(writeOutside, 2)
 
-    const activities = yield* talk([
-      ...twice,
-      writeInside,
-      ...twice,
-      editInside,
-      ...twice,
-      run,
-      ...twice,
-    ])
+    const activities = yield* talk(
+      [...twice, writeInside, ...twice, editInside, ...twice, run, ...twice],
+      writesOutsideRefused,
+    )
 
     expect(calls(activities)).toBe(11)
     expect(closed(activities)).toBe(false)
@@ -160,7 +189,10 @@ it.live('an allowed gated act clears the count', () =>
 // still being refused, and the third refusal ends the Turn with the looking in between.
 it.live('a successful read or search does not clear the count', () =>
   Effect.gen(function* () {
-    const activities = yield* talk([writeOutside, read, writeOutside, search, writeOutside, read])
+    const activities = yield* talk(
+      [writeOutside, read, writeOutside, search, writeOutside, read],
+      writesOutsideRefused,
+    )
 
     expect(calls(activities)).toBe(5)
     expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
@@ -173,8 +205,12 @@ it.live('a gated tool that failed on its own neither counts nor clears', () =>
   Effect.gen(function* () {
     const twice = repeated(writeOutside, 2)
 
-    const counted = yield* talk([...twice, editMissing, writeInside])
-    const cleared = yield* talk([...twice, editMissing, writeOutside, writeInside])
+    const counted = yield* talk([...twice, editMissing, writeInside], playedWithAnEditThatMisses)
+
+    const cleared = yield* talk(
+      [...twice, editMissing, writeOutside, writeInside],
+      playedWithAnEditThatMisses,
+    )
 
     expect(closed(counted)).toBe(false)
     expect(calls(cleared)).toBe(4)
@@ -185,18 +221,21 @@ it.live('a gated tool that failed on its own neither counts nor clears', () =>
 // A long Turn that brushes the Gate twice, far apart, is doing its work and carries on.
 it.live('a Turn doing useful work through one or two refusals answers as normal', () =>
   Effect.gen(function* () {
-    const activities = yield* talk([
-      read,
-      search,
-      writeInside,
-      writeOutside,
-      editInside,
-      read,
-      run,
-      writeOutside,
-      writeInside,
-      read,
-    ])
+    const activities = yield* talk(
+      [
+        read,
+        search,
+        writeInside,
+        writeOutside,
+        editInside,
+        read,
+        run,
+        writeOutside,
+        writeInside,
+        read,
+      ],
+      writesOutsideRefused,
+    )
 
     expect(calls(activities)).toBe(10)
     expect(closed(activities)).toBe(false)
@@ -204,19 +243,9 @@ it.live('a Turn doing useful work through one or two refusals answers as normal'
   }),
 )
 
-// A command the Judge finds unrequested and irreversible. The count reads a refusal by
-// its tag, whichever Gate returned it, so a model that keeps rephrasing a command it is
-// refused is stopped the same way as one that keeps writing outside.
-const destroying: Reply = answering(
-  new Map([
-    ['serves_request', 0],
-    ['irreversible', 1],
-  ]),
-)
-
 it.live('a model that keeps running a refused command is stopped after the third refusal', () =>
   Effect.gen(function* () {
-    const activities = yield* talk(repeated(run, 10), judging([destroying]))
+    const activities = yield* talk(repeated(run, 10), commandsRefused)
 
     expect(calls(activities)).toBe(3)
     expect(activities.filter((activity) => activity.type === 'tool-result')).toMatchObject([
@@ -232,7 +261,7 @@ it.live('a model that keeps running a refused command is stopped after the third
 // judged refusal, then two refused unjudged, and the three together end the Turn.
 it.live('refusals because the Judge did not answer count alongside judged ones', () =>
   Effect.gen(function* () {
-    const activities = yield* talk(repeated(writeOutside, 10), judging([refusing, rejected]))
+    const activities = yield* talk(repeated(writeOutside, 10), judgedOnce)
 
     const failures = activities.flatMap((activity) =>
       activity.type === 'tool-result' && activity.isFailure ? [activity.result] : [],
@@ -254,7 +283,7 @@ it.live('each Turn counts its refusals from none', () =>
   Effect.gen(function* () {
     const twice = repeated(writeOutside, 2)
 
-    const activities = yield* talk([...twice, () => answer, ...twice], judging([refusing]), [
+    const activities = yield* talk([...twice, () => answer, ...twice], writesOutsideRefused, [
       'tidy up',
       'and again',
     ])
@@ -269,7 +298,7 @@ it.live('each Turn counts its refusals from none', () =>
 // single step, and the Impasse carries the count that ran out, not the cap it passed.
 it.live('several refusals in one step all count, and the Impasse says how many', () =>
   Effect.gen(function* () {
-    const activities = yield* talk([together(...repeated(writeOutside, 4))])
+    const activities = yield* talk([together(...repeated(writeOutside, 4))], writesOutsideRefused)
 
     expect(calls(activities)).toBe(4)
     expect(activities.at(-1)).toEqual({ refusals: 4, type: 'impasse' })
@@ -282,8 +311,15 @@ it.live('several refusals in one step all count, and the Impasse says how many',
 // last depending on where it sits, and the outcome is the same either way.
 it.live('an allowed act in a step that was also refused does not clear the count', () =>
   Effect.gen(function* () {
-    const before = yield* talk([writeOutside, together(writeInside, writeOutside), writeOutside])
-    const after = yield* talk([writeOutside, together(writeOutside, writeInside), writeOutside])
+    const before = yield* talk(
+      [writeOutside, together(writeInside, writeOutside), writeOutside],
+      writesOutsideRefused,
+    )
+
+    const after = yield* talk(
+      [writeOutside, together(writeOutside, writeInside), writeOutside],
+      writesOutsideRefused,
+    )
 
     expect(calls(before)).toBe(4)
     expect(before.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
@@ -297,7 +333,10 @@ it.live('a step that got every gated act through clears the count', () =>
   Effect.gen(function* () {
     const twice = repeated(writeOutside, 2)
 
-    const activities = yield* talk([...twice, together(writeInside, editInside), ...twice])
+    const activities = yield* talk(
+      [...twice, together(writeInside, editInside), ...twice],
+      writesOutsideRefused,
+    )
 
     expect(calls(activities)).toBe(6)
     expect(closed(activities)).toBe(false)
@@ -311,7 +350,7 @@ it.live('a step that got every gated act through clears the count', () =>
 // it ends the Turn just as it does when the call arrives whole.
 const streamedEditMissing = (turn: number, slot: number): Array<Part> => {
   const id = `call-${turn}-${slot}`
-  const params = { path: 'inside/keep.txt', old_text: 'absent', new_text: 'x' }
+  const params = { path: 'inside/file.txt', old_text: 'absent', new_text: 'x' }
 
   return [
     { type: 'tool-params-start', id, name: 'edit_file' },
@@ -325,7 +364,10 @@ it.live('a gated call streamed in fragments is not an act allowed through', () =
   Effect.gen(function* () {
     const twice = repeated(writeOutside, 2)
 
-    const activities = yield* talk([...twice, streamedEditMissing, writeOutside, writeInside])
+    const activities = yield* talk(
+      [...twice, streamedEditMissing, writeOutside, writeInside],
+      playedWithAnEditThatMisses,
+    )
 
     expect(calls(activities)).toBe(4)
     expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })

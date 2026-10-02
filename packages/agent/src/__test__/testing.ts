@@ -12,7 +12,7 @@ import * as NodePath from 'node:path'
 import { promisify } from 'node:util'
 import * as Util from 'node:util'
 
-import { LanguageModel } from 'effect/unstable/ai'
+import { Chat, LanguageModel, Prompt } from 'effect/unstable/ai'
 
 import type { Path } from 'effect'
 import type { AiError, Response } from 'effect/unstable/ai'
@@ -21,14 +21,17 @@ import type { ChildProcessSpawner } from 'effect/unstable/process'
 const execFileP = promisify(execFile)
 
 import { allowing } from './judging.ts'
+import { answer } from '#turn.ts'
 import { Session, handlers } from '#index.ts'
-import { Hooks, toolkitLayer } from '#tools/index.ts'
+import { before } from '#tools/hooks.ts'
+import { Hooks, toolkit, toolkitLayer } from '#tools/index.ts'
 import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
 import type { InstructionsUnreadable } from '#prompt.ts'
 import type { Judge } from '#judge.ts'
-import type { Handlers } from '#tools/index.ts'
+import type { Handler } from '#tools/hooks.ts'
+import type { Handlers, Tools } from '#tools/index.ts'
 
 // `tools` on the platform, with `workspace` as the Workspace.
 const mounted = (
@@ -285,6 +288,67 @@ export const brokenModel = (
   scriptedLanguageModel((turn) =>
     turn === broken ? Stream.fail(failure) : Stream.fromIterable(script(turn)),
   )
+
+// The tools' answers from cans: every tool states a success as one string, so a can is
+// a string, and what one tool's answer says against another's is nothing the loop can
+// see. A test that wants an act refused, or a tool to fail on its own, plays that in the
+// hooks a can runs behind — the seam takes the failure as the tool's own, whether it
+// stood in for one of the Gates or nothing at all.
+const canned = toolkit.of({
+  bash: () => Effect.succeed('exit 0\nhi'),
+  edit_file: () => Effect.succeed('the file is the way the edit left it'),
+  glob: () => Effect.succeed('kept.txt'),
+  read_file: () => Effect.succeed('kept'),
+  write_file: () => Effect.succeed('wrote 4 bytes'),
+})
+
+/**
+ * The tools answering from cans, the model the one given — `scriptedModel` for a script,
+ * `brokenModel` for a call that breaks — and nothing of the machine behind anything: no
+ * file read or written, no git walked, no command run. The one entry point a test has
+ * into the agent with no infrastructure under it, so everything the loop does is said by
+ * the model's script and answered by the cans — and the code it covers can live under
+ * the unit gate's mutation run.
+ */
+export const rehearsed = (
+  model: Layer.Layer<LanguageModel.LanguageModel>,
+  requests: ReadonlyArray<string>,
+  hooks: Hooks = {},
+  answers: Partial<{ readonly [Name in keyof Tools]: Handler<Name> }> = {},
+): Effect.Effect<Array<Activity>> => {
+  const program = Effect.gen(function* () {
+    const kit = yield* toolkit
+    const conversation = yield* Chat.fromPrompt(Prompt.empty)
+
+    const seen: Array<Activity> = []
+
+    for (const request of requests) {
+      yield* Stream.runForEach(answer(conversation, kit, request), (activity) =>
+        Effect.sync(() => seen.push(activity)),
+      )
+    }
+
+    return seen
+  })
+
+  return program.pipe(
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+    Effect.provide(
+      Layer.mergeAll(
+        model,
+        toolkit.toLayer(
+          toolkit.of({
+            bash: before(hooks, 'bash', answers.bash ?? canned.bash),
+            edit_file: before(hooks, 'edit_file', answers.edit_file ?? canned.edit_file),
+            glob: before(hooks, 'glob', answers.glob ?? canned.glob),
+            read_file: before(hooks, 'read_file', answers.read_file ?? canned.read_file),
+            write_file: before(hooks, 'write_file', answers.write_file ?? canned.write_file),
+          }),
+        ),
+      ),
+    ),
+  )
+}
 
 /**
  * Put each Request to the agent's session, in one conversation, and collect every

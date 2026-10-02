@@ -3,9 +3,8 @@ import { Effect, Option } from 'effect'
 import type { Response } from 'effect/unstable/ai'
 
 import { Request } from '#request.ts'
-import { asked } from './testing.ts'
+import { rehearsed, scriptedModel } from './testing.ts'
 
-import type { InstructionsUnreadable } from '#prompt.ts'
 import type { Script } from './testing.ts'
 
 const answered: Array<Response.StreamPartEncoded> = [
@@ -25,25 +24,23 @@ const once: Script = (turn) => (turn % 2 === 0 ? reaching : answered)
 const twice: Script = (turn) => (turn === 2 ? answered : reaching)
 
 // Put each Request to the agent in one conversation, with a hook at the seam that
-// notes what it read as the Request before `bash` runs. What comes back is one
-// reading per call, in the order the calls ran. The seam is where a Gate will stand,
-// so what the hook reads here is what the Judge will be handed.
+// notes what it read as the Request before `bash` runs. What comes back is one reading
+// per call, in the order the calls ran. The seam is where the Gates will stand in the
+// agent as mounted, so what the hook reads here is the same words those Gates will be
+// handed.
 const heard = (
   script: Script,
   requests: ReadonlyArray<string>,
-): Effect.Effect<Array<Option.Option<string>>, InstructionsUnreadable> =>
-  Effect.gen(function* () {
-    const seen: Array<Option.Option<string>> = []
+): Effect.Effect<Array<Option.Option<string>>> => {
+  const seen: Array<Option.Option<string>> = []
 
-    yield* asked(script, requests, {
-      bash: () =>
-        Effect.gen(function* () {
-          seen.push(yield* Request)
-        }),
-    })
-
-    return seen
-  })
+  return rehearsed(scriptedModel(script), requests, {
+    bash: () =>
+      Effect.gen(function* () {
+        seen.push(yield* Request)
+      }),
+  }).pipe(Effect.map(() => seen))
+}
 
 it('outside any Turn there is no request', () => {
   expect(Effect.runSync(Request)).toEqual(Option.none())

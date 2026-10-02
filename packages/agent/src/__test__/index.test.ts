@@ -1,11 +1,11 @@
 import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
+import { AiError } from 'effect/unstable/ai'
 import type { Response } from 'effect/unstable/ai'
 
-import { asked } from './testing.ts'
+import { brokenModel, rehearsed, scriptedModel } from './testing.ts'
 
 import type { Activity } from '#activity.ts'
-import type { InstructionsUnreadable } from '#prompt.ts'
 import type { Script } from './testing.ts'
 
 const answered: Array<Response.StreamPartEncoded> = [
@@ -37,9 +37,8 @@ const bookkeeping: Script = () => [
   { type: 'text-end', id: 'text-1' },
 ]
 
-const asking = (
-  ...requests: ReadonlyArray<string>
-): Effect.Effect<Array<Activity>, InstructionsUnreadable> => asked(answering, requests)
+const asking = (...requests: ReadonlyArray<string>): Effect.Effect<Array<Activity>> =>
+  rehearsed(scriptedModel(answering), requests)
 
 it.live('the loop runs the tool the model asks for and reports what came back', () =>
   Effect.gen(function* () {
@@ -87,7 +86,7 @@ it.live('a bash call arrives typed, not as an anonymous payload', () =>
 // turn reported. The refusal and the answer after it are the proof the loop went round.
 it.live('a call the agent could not parse still sends the loop round again', () =>
   Effect.gen(function* () {
-    const activities = yield* asked(misdialling, ['say hi'])
+    const activities = yield* rehearsed(scriptedModel(misdialling), ['say hi'])
 
     expect(activities.filter((activity) => activity.type === 'tool-call')).toEqual([])
     expect(activities.filter((activity) => activity.type === 'tool-result')).toMatchObject([
@@ -117,8 +116,30 @@ it.live('the loop stops on a turn with no tool call', () =>
 // is not reported, so a screen never has to know it exists.
 it.live('only replies, tool calls and tool results are reported', () =>
   Effect.gen(function* () {
-    expect(yield* asked(bookkeeping, ['say hi'])).toEqual([
+    expect(yield* rehearsed(scriptedModel(bookkeeping), ['say hi'])).toEqual([
       { id: 'text-1', text: 'hi', type: 'reply' },
     ])
   }),
+)
+
+// A call of the model that fails the way a provider does — a rate limit, a network drop
+// — ends the Turn as the loop's own report, carried as the last Activity with the
+// failure's own words, and nothing follows it.
+const failure = AiError.make({
+  method: 'streamText',
+  module: 'OpenAI',
+  reason: new AiError.RateLimitError({}),
+})
+
+it.live(
+  'a call of the model that breaks is reported as the Breakdown, and nothing comes after',
+  () =>
+    Effect.gen(function* () {
+      const activities = yield* rehearsed(
+        brokenModel((_turn) => [], 0, failure),
+        ['say hi'],
+      )
+
+      expect(activities).toEqual([{ reason: failure.message, type: 'breakdown' }])
+    }),
 )
