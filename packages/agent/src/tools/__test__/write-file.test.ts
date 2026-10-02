@@ -1,16 +1,22 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { Effect, Stream } from 'effect'
-import * as Fs from 'node:fs/promises'
 
 import { call, touch } from './harness.ts'
-import { outside, readText, removeWorkspaces, workspace, write } from '#__test__/testing.ts'
+import {
+  entriesOf,
+  outside,
+  readText,
+  removeWorkspaces,
+  workspace,
+  write,
+} from '#__test__/testing.ts'
 import { FileNotRead, FileSystemRefused } from '#tools/index.ts'
 
 afterEach(removeWorkspaces)
 
 it.live('write_file creates the parent directories it needs', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('write_file', { path: 'a/b/new.txt', content: 'hello' }),
@@ -24,7 +30,7 @@ it.live('write_file creates the parent directories it needs', () =>
 
 it.live('write_file reports the byte length, not the character count', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('write_file', { path: 'emoji.txt', content: 'é🙂' }),
@@ -36,7 +42,7 @@ it.live('write_file reports the byte length, not the character count', () =>
 
 it.live('write_file will not overwrite a file that was never read', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('write_file', { path: 'inside/keep.txt', content: 'clobbered' }),
@@ -55,7 +61,7 @@ it.live('write_file will not overwrite a file that was never read', () =>
 
 it.live('write_file overwrites a file that was read first, and says it did', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       Effect.gen(function* () {
@@ -73,7 +79,7 @@ it.live('write_file overwrites a file that was read first, and says it did', () 
 
 it.live('write_file will not overwrite on the strength of a read that showed nothing', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       Effect.gen(function* () {
@@ -93,7 +99,7 @@ it.live('write_file will not overwrite on the strength of a read that showed not
 
 it.live('write_file will not overwrite on the strength of a read that showed only part', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/long.txt`, 'a\nb\nc\nd'))
 
@@ -116,7 +122,7 @@ it.live('write_file will not overwrite on the strength of a read that showed onl
 // are still unseen, and overwriting on the strength of that read would drop them.
 it.live('write_file will not overwrite on the strength of a read that started partway down', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/three.txt`, 'a\nb\nc\n'))
 
@@ -139,7 +145,7 @@ it.live('write_file will not overwrite on the strength of a read that started pa
 
 it.live('write_file will not overwrite a file that changed after it was read', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       Effect.gen(function* () {
@@ -166,11 +172,11 @@ it.live('write_file will not overwrite a file that changed after it was read', (
 
 it.live('write_file leaves no temporary file behind', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* call(root, (tools) => tools.handle('write_file', { path: 'new.txt', content: 'hello' }))
 
-    const left = yield* Effect.promise(() => Fs.readdir(root))
+    const left = yield* Effect.promise(() => entriesOf(root))
 
     expect(left.filter((entry) => entry.endsWith('.tmp'))).toEqual([])
   }),
@@ -178,7 +184,7 @@ it.live('write_file leaves no temporary file behind', () =>
 
 it.live('write_file reports a parent that cannot be made a directory', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/blocker`, 'not a directory'))
 
@@ -198,7 +204,7 @@ it.live('write_file reports a parent that cannot be made a directory', () =>
 // also end in `outside/new.txt`.
 it.live('write_file resolves a relative path against the workspace, and so lands outside', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('write_file', { path: '../outside/new.txt', content: 'hello' }),

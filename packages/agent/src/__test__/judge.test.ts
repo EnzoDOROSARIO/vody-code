@@ -110,24 +110,22 @@ it.live('the Judge builds with a key, without reaching the network', () =>
 )
 
 // A Codex sign-in that is good for another hour, so the only thing the agent could be
-// missing is the Judge's key.
+// missing is the Judge's key. The claims are assembled by hand: `exp` is the one part
+// that varies, and the JSON is fixed apart from it.
 const signedIn = Effect.gen(function* () {
   const home = yield* Effect.promise(() => onDisk(temporary))
 
-  const claims = {
-    exp: Math.floor(Effect.runSync(Clock.currentTimeMillis) / 1000) + 3600,
-    'https://api.openai.com/auth': { chatgpt_account_id: 'fake-account-id' },
-  }
+  const exp = Math.floor((yield* Clock.currentTimeMillis) / 1000) + 3600
 
   const token = [
     Encoding.encodeBase64Url('{"alg":"none"}'),
-    Encoding.encodeBase64Url(JSON.stringify(claims)),
+    Encoding.encodeBase64Url(
+      `{"exp":${exp},"https://api.openai.com/auth":{"chatgpt_account_id":"fake-account-id"}}`,
+    ),
     '',
   ].join('.')
 
-  yield* Effect.promise(() =>
-    write(`${home}/auth.json`, JSON.stringify({ tokens: { access_token: token } })),
-  )
+  yield* Effect.promise(() => write(`${home}/auth.json`, `{"tokens":{"access_token":"${token}"}}`))
 
   return home
 })
@@ -209,7 +207,7 @@ const askedOnce = (asked: Asked): Effect.Effect<void, Cause.TimeoutError> =>
 
 it.live('a Judge that does not answer within the budget refuses the act, unjudged', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const { result, seen } = yield* timed(root, [hanging], (asked, settled) =>
       Effect.gen(function* () {
@@ -244,7 +242,7 @@ it.live('a Judge that does not answer within the budget refuses the act, unjudge
 // and not a moment before.
 it.live('a rate-limited Judge is asked again once the delay it asked for is over', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const { result, seen } = yield* timed(
       root,
@@ -271,7 +269,7 @@ it.live('a rate-limited Judge is asked again once the delay it asked for is over
 
 it.live('a Judge rate limited twice refuses the act, unjudged', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     // Asked a second time, and refused all the same.
     const { result, seen, unseen } = yield* timed(root, [rateLimited(Option.none())], (asked) =>
@@ -297,7 +295,7 @@ it.live(
   'the budget covers the retry, so a retry that hangs times out with the first attempt counted',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const { result } = yield* timed(
         root,
@@ -331,7 +329,7 @@ const tooLong: ReadonlyArray<readonly [string, Reply]> = [
 
 it.live.each(tooLong)('a delay of %s refuses without asking again', ([_label, first]) =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const { result, seen } = yield* timed(root, [first, allows], (asked) =>
       askedOnce(asked).pipe(
@@ -352,7 +350,7 @@ it.live.each(tooLong)('a delay of %s refuses without asking again', ([_label, fi
 // when asking again will help.
 it.live('a Judge that fails any other way refuses the act at once, without asking again', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const asked = yield* Queue.unbounded<Schema.Json>()
 
@@ -370,7 +368,7 @@ it.live('a Judge that fails any other way refuses the act at once, without askin
 // The session goes on: the same Judge is asked about the next act, and answers it.
 it.live('rejected credentials refuse the act and leave the session running', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const [first, second] = yield* Effect.all([outcome(writing), outcome(writing)]).pipe(
       // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point

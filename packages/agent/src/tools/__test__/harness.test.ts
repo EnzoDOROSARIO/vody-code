@@ -9,7 +9,7 @@ afterEach(removeWorkspaces)
 // Compared as they are: both sides are the real path, see `workspace`.
 it.live('the workspace is a git repository whose working tree root is the workspace itself', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('bash', { command: 'git rev-parse --show-toplevel' }),
@@ -21,7 +21,7 @@ it.live('the workspace is a git repository whose working tree root is the worksp
 
 it.live('the fixture outside the workspace lies outside its repository', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('bash', { command: 'git -C ../outside rev-parse --show-toplevel' }),

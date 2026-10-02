@@ -43,7 +43,7 @@ const bash = (root: string, judge: Layer.Layer<Judge>, command: string) =>
 
 it.live('an ordinary build or test command runs as it always did', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const ran = yield* call(root, running('echo built && true'))
 
@@ -54,7 +54,7 @@ it.live('an ordinary build or test command runs as it always did', () =>
 
 it.live('a destructive command that serves the Request runs', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const ran = yield* bash(
       root,
@@ -72,7 +72,7 @@ it.live(
   'the same destructive command unrelated to the Request is refused, does not run, and says why',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const ran = yield* bash(
         root,
@@ -106,7 +106,7 @@ it.live(
 
 it.live('every danger that is high takes part in the refusal', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const ran = yield* bash(
       root,
@@ -130,7 +130,7 @@ it.live(
   'a command that sends data off the machine is refused above its band, however plainly it was asked for',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const ran = yield* bash(root, judgedAs({ serves: 1, sends: 0.93 }), 'touch ran')
 
@@ -152,7 +152,7 @@ it.live(
   'a command that cannot be undone is refused above its band, however plainly it was asked for',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const ran = yield* bash(root, judgedAs({ serves: 1, irreversible: 0.97 }), 'touch ran')
 
@@ -166,7 +166,7 @@ it.live(
 
 it.live('a command that surely reaches beyond the Perimeter still runs when it was asked for', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const ran = yield* bash(root, judgedAs({ serves: 1, beyond: 1 }), 'touch ran')
 
@@ -214,7 +214,7 @@ const boundaries: ReadonlyArray<readonly [string, Answers, boolean]> = [
 
 it.live.each(boundaries)('%s', ([, given, allowed]) =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const ran = yield* bash(root, judgedAs(given), 'touch ran')
 
@@ -242,7 +242,7 @@ const judgedInOneTurn = (root: string, commands: ReadonlyArray<string>) =>
 
 it.live('a compound command reaches the Judge once, whole and unsplit', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const command = 'echo one && echo two; echo three'
 
@@ -256,7 +256,7 @@ it.live('a compound command reaches the Judge once, whole and unsplit', () =>
 
 it.live('the Judge is asked about every command, a repeat of one already judged included', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const { asked } = yield* judgedInOneTurn(root, ['true', 'true', 'echo harmless'])
 
@@ -271,7 +271,7 @@ it.live('the Judge is asked about every command, a repeat of one already judged 
 
 it.live('a Judge that does not answer refuses the command unjudged, and it does not run', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const ran = yield* bash(root, judging([rejected]), 'touch ran')
 

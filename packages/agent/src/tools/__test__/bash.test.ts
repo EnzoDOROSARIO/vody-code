@@ -1,9 +1,8 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { Effect, FileSystem } from 'effect'
-import * as Fs from 'node:fs/promises'
 
 import { call, text } from './harness.ts'
-import { onDisk, readText, removeWorkspaces, workspace } from '#__test__/testing.ts'
+import { fileSize, onDisk, readText, removeWorkspaces, workspace } from '#__test__/testing.ts'
 
 import type { Outcome } from './harness.ts'
 import { CommandRefused, CommandTimedOut } from '#tools/index.ts'
@@ -23,7 +22,7 @@ const spillOf = (result: Outcome): string => {
 
 it.live('bash runs in the workspace and reports a clean exit', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('bash', { command: 'cat inside/keep.txt' }),
@@ -36,7 +35,7 @@ it.live('bash runs in the workspace and reports a clean exit', () =>
 
 it.live('bash reports a command that failed', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('bash', { command: 'echo trouble; exit 3' }),
@@ -49,7 +48,7 @@ it.live('bash reports a command that failed', () =>
 
 it.live('bash includes what a command wrote to stderr', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('bash', { command: 'echo complaint >&2' }),
@@ -61,7 +60,7 @@ it.live('bash includes what a command wrote to stderr', () =>
 
 it.live('bash marks a command that printed nothing', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) => tools.handle('bash', { command: 'true' }))
 
@@ -71,7 +70,7 @@ it.live('bash marks a command that printed nothing', () =>
 
 it.live('bash closes stdin, so a command that reads it ends instead of hanging', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) => tools.handle('bash', { command: 'cat' }))
 
@@ -81,7 +80,7 @@ it.live('bash closes stdin, so a command that reads it ends instead of hanging',
 
 it.live('bash kills a command that outstays its timeout, keeping what it printed', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('bash', { command: 'echo starting; sleep 30', timeout_seconds: 1 }),
@@ -110,7 +109,7 @@ it('a command killed at the ceiling is not told to ask for longer', () => {
 
 it.live('bash keeps the end of output that would otherwise flood the context', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('bash', { command: `seq 1 20000; echo done` }),
@@ -125,7 +124,7 @@ it.live('bash keeps the end of output that would otherwise flood the context', (
 
 it.live('bash writes the whole of a truncated output to a file it names', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('bash', { command: `seq 1 20000; echo done` }),
@@ -140,7 +139,7 @@ it.live('bash writes the whole of a truncated output to a file it names', () =>
 
 it.live('bash keeps a whole tail even when one chunk is larger than the tail', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     // A single line far longer than the budget arrives in chunks bigger than the tail
     // itself, so trimming a whole chunk at a time would leave almost nothing behind.
@@ -151,7 +150,7 @@ it.live('bash keeps a whole tail even when one chunk is larger than the tail', (
     expect(text(outcome.result).endsWith('done\n')).toBe(true)
     expect(text(outcome.result).length).toBeGreaterThan(30_000)
 
-    expect((yield* Effect.promise(() => Fs.stat(spillOf(outcome.result)))).size).toBe(
+    expect(yield* Effect.promise(() => fileSize(spillOf(outcome.result)))).toBe(
       400_000 + 'done\n'.length,
     )
   }),
@@ -159,7 +158,7 @@ it.live('bash keeps a whole tail even when one chunk is larger than the tail', (
 
 it.live('bash names no file when the output fit', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) => tools.handle('bash', { command: 'echo small' }))
 
@@ -169,7 +168,7 @@ it.live('bash names no file when the output fit', () =>
 
 it.live('bash reports a shell it could not start at all', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() =>
       onDisk(

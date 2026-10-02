@@ -1,14 +1,13 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { NodeServices } from '@effect/platform-node'
 import { Clock, ConfigProvider, Effect, Encoding, Exit, Layer, Redacted } from 'effect'
-import * as Fs from 'node:fs/promises'
 import * as Util from 'node:util'
 
 import { TestClock } from 'effect/testing'
 
 import { CodexCredentials } from '#credentials.ts'
 
-import { rendered, write } from './testing.ts'
+import { rendered, removeTree, write } from './testing.ts'
 import type { CodexAuthenticationRequired, CredentialFound } from '#credentials.ts'
 
 const ACCOUNT = 'fake-account-id'
@@ -57,11 +56,7 @@ const codexHome = (authJson: string | undefined): Effect.Effect<string> =>
     return home
   })
 
-afterEach(async () => {
-  for (const home of homes.splice(0)) {
-    await Fs.rm(home, { recursive: true, force: true })
-  }
-})
+afterEach(() => Promise.all(homes.splice(0).map(removeTree)))
 
 // Run `use` against the file-backed adapter's port, with `env` as the configuration
 // it reads its home from. The layers the adapter's reads ride on are merged in
@@ -103,6 +98,11 @@ type Stored = {
 
 const stored = (tokens: Stored | null): string => JSON.stringify({ auth_mode: 'chatgpt', tokens })
 
+// The default JSON serializer, which is the rendering the redaction test puts on
+// trial: a credential reaches JSON through its own `toJSON`, not through Schema,
+// whose `Redacted` encoding unwraps the value rather than hiding it.
+const asJson = (credential: CredentialFound): string => JSON.stringify(credential)
+
 const signedIn = (access: string): string => stored({ access_token: access, account_id: ACCOUNT })
 
 it.live('reads the token and account id the Codex CLI stored', () =>
@@ -128,8 +128,8 @@ it.live('a credential renders as redacted, never as its secret', () =>
 
     if (Exit.isSuccess(exit)) {
       expect(Util.inspect(exit.value.accessToken)).not.toContain(access)
-      expect(JSON.stringify(exit.value)).not.toContain(access)
-      expect(JSON.stringify(exit.value)).not.toContain(ACCOUNT)
+      expect(asJson(exit.value)).not.toContain(access)
+      expect(asJson(exit.value)).not.toContain(ACCOUNT)
     }
   }),
 )
@@ -173,7 +173,7 @@ const refusal = (exit: Exit.Exit<CredentialFound, CodexAuthenticationRequired>):
 
 it.live('a credential file holding no tokens asks for a login', () =>
   Effect.gen(function* () {
-    const exit = yield* readFrozen(yield* codexHome(JSON.stringify({ auth_mode: 'chatgpt' })))
+    const exit = yield* readFrozen(yield* codexHome('{"auth_mode":"chatgpt"}'))
 
     expect(refusal(exit)).toContain('codex login')
   }),
@@ -341,10 +341,7 @@ it.live('a token whose claims carry no expiry is not good enough to call with', 
 it.live('an account claim of another shape is not good enough to call with', () =>
   Effect.gen(function* () {
     const payload = Encoding.encodeBase64Url(
-      JSON.stringify({
-        exp: inOneHour,
-        'https://api.openai.com/auth': { chatgpt_account_id: 42 },
-      }),
+      `{"exp":${inOneHour},"https://api.openai.com/auth":{"chatgpt_account_id":42}}`,
     )
 
     const exit = yield* readFrozen(yield* codexHome(signedIn(`header.${payload}.`)))

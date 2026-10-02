@@ -9,7 +9,7 @@ afterEach(removeWorkspaces)
 
 it.live('read_file numbers the lines it returns', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('read_file', { path: 'inside/keep.txt' }),
@@ -22,7 +22,7 @@ it.live('read_file numbers the lines it returns', () =>
 
 it.live('read_file counts a trailing newline as ending a line, not starting one', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/three.txt`, 'a\nb\nc\n'))
 
@@ -36,7 +36,7 @@ it.live('read_file counts a trailing newline as ending a line, not starting one'
 
 it.live('read_file rejects a limit of zero rather than returning nothing', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('read_file', { path: 'inside/keep.txt', limit: 0 }),
@@ -48,7 +48,7 @@ it.live('read_file rejects a limit of zero rather than returning nothing', () =>
 
 it.live('read_file stops at the line limit and says where to continue', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/long.txt`, 'a\nb\nc\nd'))
 
@@ -62,7 +62,7 @@ it.live('read_file stops at the line limit and says where to continue', () =>
 
 it.live('read_file starts at the offset it is given, numbering from there', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/long.txt`, 'a\nb\nc\nd'))
 
@@ -76,7 +76,7 @@ it.live('read_file starts at the offset it is given, numbering from there', () =
 
 it.live('read_file pages through a file with offset and limit together', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/long.txt`, 'a\nb\nc\nd\ne'))
 
@@ -90,7 +90,7 @@ it.live('read_file pages through a file with offset and limit together', () =>
 
 it.live('read_file says so when the offset is past the end', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/short.txt`, 'a\nb'))
 
@@ -105,7 +105,7 @@ it.live('read_file says so when the offset is past the end', () =>
 
 it.live('read_file marks an empty file rather than returning nothing', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/empty.txt`, ''))
 
@@ -117,7 +117,7 @@ it.live('read_file marks an empty file rather than returning nothing', () =>
 
 it.live('read_file refuses a binary file instead of decoding it to nonsense', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() =>
       write(`${root}/image.png`, new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0x1a, 0x0a])),
@@ -135,7 +135,7 @@ it.live('read_file refuses a binary file instead of decoding it to nonsense', ()
 
 it.live('read_file clips a line too long to be bounded by a line limit', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/bundle.js`, 'x'.repeat(5_000_000)))
 
@@ -149,7 +149,7 @@ it.live('read_file clips a line too long to be bounded by a line limit', () =>
 
 it.live('read_file reaches outside the workspace, the way bash can', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('read_file', { path: '../outside/secret.txt' }),
@@ -162,7 +162,7 @@ it.live('read_file reaches outside the workspace, the way bash can', () =>
 
 it.live('read_file takes an absolute path as it is given', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('read_file', { path: `${root}/../outside/secret.txt` }),
@@ -174,7 +174,7 @@ it.live('read_file takes an absolute path as it is given', () =>
 
 it.live('read_file reports a file that is not there', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) => tools.handle('read_file', { path: 'missing.txt' }))
 
@@ -188,7 +188,7 @@ it.live('read_file reports a file that is not there', () =>
 // at the line that ran out rather than mid-way through it.
 it.live('read_file spends its character budget across the lines, newlines included', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const line = 'x'.repeat(99)
 
@@ -215,7 +215,7 @@ it.live(
   'read_file continues from the first line it did not show, not the first the limit dropped',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const line = 'x'.repeat(99)
 
@@ -239,7 +239,7 @@ it.live(
 
 it.live('read_file says an offset one past the last line is past the end', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/three.txt`, 'a\nb\nc\n'))
 
@@ -253,7 +253,7 @@ it.live('read_file says an offset one past the last line is past the end', () =>
 
 it.live('write_file will not overwrite on the strength of a read the budget cut short', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/wide.txt`, `${'x'.repeat(99)}\n`.repeat(1010)))
 

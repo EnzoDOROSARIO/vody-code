@@ -48,7 +48,7 @@ const repositoryAt = (directory: string): Promise<void> =>
 
 it.live('the Perimeter is the working tree root, found from a Workspace anywhere inside it', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const found = yield* rootFrom(`${root}/inside`)
 
@@ -76,7 +76,7 @@ it.live('a Workspace in no repository has no Perimeter, and nothing is inside it
 
 it.live('Containment answers of the real path, and a target need not exist to have one', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const answer = yield* discovered(
       root,
@@ -95,7 +95,7 @@ it.live('Containment answers of the real path, and a target need not exist to ha
 
 it.live('a directory beside the working tree that shares its name as a prefix is outside', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const answer = yield* discovered(
       root,
@@ -109,7 +109,7 @@ it.live('a directory beside the working tree that shares its name as a prefix is
 // `.git` is out; `.gitignore` is a file in the tree that happens to start the same way.
 it.live('the repository’s metadata is outside and a file named like it is not', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const answers = yield* discovered(
       root,
@@ -130,7 +130,7 @@ it.live('the repository’s metadata is outside and a file named like it is not'
 
 it.live('a link is followed to where the write would land, then measured there', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const answer = yield* discovered(
       root,
@@ -158,7 +158,7 @@ it.live('a link is followed to where the write would land, then measured there',
 // and that metadata keeps its objects and refs in the common directory it names.
 it.live('a `.git` file naming a linked worktree’s metadata marks a working tree root', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() =>
       write(`${root}/.git/worktrees/linked/HEAD`, 'ref: refs/heads/linked\n'),
@@ -178,7 +178,7 @@ it.live('a `.git` file naming a linked worktree’s metadata marks a working tre
 // A submodule's `.git` names its metadata relative to the file, not to the Workspace.
 it.live('a `.git` file’s relative `gitdir:` is read from the file’s own directory', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => repositoryAt(`${root}/.git/modules/sub`))
     yield* Effect.promise(() =>
@@ -194,7 +194,7 @@ it.live('a `.git` file’s relative `gitdir:` is read from the file’s own dire
 // tree above, so the Perimeter is none there too: the tree above is not where it is.
 it.live('a `.git` file that names no repository ends the search with no Perimeter', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/inside/stale/.git`, 'gitdir: /nowhere\n'))
     yield* Effect.promise(() => write(`${root}/inside/garbled/.git`, 'not a gitfile\n'))
@@ -210,7 +210,7 @@ it.live('a `.git` file that names no repository ends the search with no Perimete
 
 it.live('a repository nested inside another is its own Perimeter, the nearest one', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => repositoryAt(`${root}/inside/nested/.git`))
 
@@ -223,7 +223,7 @@ it.live('a repository nested inside another is its own Perimeter, the nearest on
 // one, so a directory missing any single part of them is passed over.
 it.live('a `.git` directory that is not a repository is passed over for the tree above', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
     const parts = ['HEAD', 'objects', 'refs']
 
     const found = yield* Effect.forEach(parts, (missing) =>
@@ -252,7 +252,7 @@ it.live('a `.git` directory that is not a repository is passed over for the tree
 // what is under `.git` is metadata, so a Workspace in it is in no working tree at all.
 it.live('a Workspace in the repository’s own `.git`, or that is it, has no Perimeter', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const found = yield* Effect.forEach([`${root}/.git`, `${root}/.git/refs`], rootFrom)
 
@@ -289,7 +289,7 @@ it.live(
 // tree's real path, the one every target is resolved to before it is measured.
 it.live('a Workspace reached through a link has the Perimeter of where it really is', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
     const alias = `${root.slice(0, root.lastIndexOf('/'))}/alias`
 
     yield* Effect.promise(() =>
@@ -313,7 +313,7 @@ it.live('a Workspace reached through a link has the Perimeter of where it really
 
 it.live('a Workspace that does not exist has no Perimeter', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     expect(yield* rootFrom(`${root}/inside/missing`)).toEqual(Option.none())
   }),
@@ -323,7 +323,7 @@ it.live('a Workspace that does not exist has no Perimeter', () =>
 // walk stops there with nothing: the smaller answer is the safe one.
 it.live('a Workspace whose directory cannot be looked into has no Perimeter', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const permitted = (mode: number): Promise<void> =>
       onDisk(

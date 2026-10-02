@@ -8,7 +8,7 @@ afterEach(removeWorkspaces)
 
 it.live('glob finds files recursively, most recently modified first', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/older.ts`, ''))
     yield* Effect.promise(() => write(`${root}/inside/newer.ts`, ''))
@@ -24,7 +24,7 @@ it.live('glob finds files recursively, most recently modified first', () =>
 
 it.live('glob returns files, not the directories on the way to them', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) => tools.handle('glob', { pattern: '*' }))
 
@@ -34,7 +34,7 @@ it.live('glob returns files, not the directories on the way to them', () =>
 
 it.live('glob skips what git ignores', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     // The workspace is already a repository, so git has a say here.
     yield* Effect.promise(() => write(`${root}/.gitignore`, 'build/\n'))
@@ -49,7 +49,7 @@ it.live('glob skips what git ignores', () =>
 
 it.live('glob skips node_modules even when git does not ignore it', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/node_modules/dependency/index.ts`, ''))
     yield* Effect.promise(() => write(`${root}/mine.ts`, ''))
@@ -64,7 +64,7 @@ it.live('glob skips node_modules even when git does not ignore it', () =>
 // the always-excluded list has to hold without a repository to ask.
 it.live('glob skips node_modules where there is no repository to ask', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() =>
       onDisk(
@@ -87,7 +87,7 @@ it.live('glob skips node_modules where there is no repository to ask', () =>
 
 it.live('glob still looks inside node_modules when the pattern names it', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/node_modules/dependency/index.ts`, ''))
 
@@ -101,7 +101,7 @@ it.live('glob still looks inside node_modules when the pattern names it', () =>
 
 it.live('glob cuts a long list short and says it did', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() =>
       Promise.all(
@@ -122,7 +122,7 @@ it.live('glob cuts a long list short and says it did', () =>
 
 it.live('glob says so when nothing matches', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) => tools.handle('glob', { pattern: '**/*.nothing' }))
 
@@ -132,7 +132,7 @@ it.live('glob says so when nothing matches', () =>
 
 it.live('glob matches relative to the workspace, and may reach past it', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('glob', { pattern: '../outside/*.txt' }),

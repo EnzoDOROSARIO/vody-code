@@ -115,7 +115,7 @@ const writing = (path: string) => (tools: Toolkit.WithHandler<Tools>) =>
 
 it.live('a write outside is put to the Judge with every fact established here', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     expect(yield* factsFor({ workspace: root, handle: writing('../outside/new.txt') })).toEqual({
       tool: 'write_file',
@@ -135,7 +135,7 @@ it.live(
   'the Judge is handed the Request exactly as the person typed it, and the tool that writes',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const facts = yield* factsFor({
         workspace: root,
@@ -161,7 +161,7 @@ it.live(
 // home reached through a link still has the writes under it that land there.
 it.live('a write under the home directory is said to be, even when the home is a link', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const home = `${yield* Effect.promise(() => onDisk(temporary))}/home`
 
@@ -189,7 +189,7 @@ it.live(
   'a home directory that does not exist yet still has the writes under it that would create it',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const facts = yield* factsFor({
         workspace: root,
@@ -206,7 +206,7 @@ it.live(
   'a home directory that does not exist yet and is named with a trailing slash still has the writes under it',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const facts = yield* factsFor({
         workspace: root,
@@ -220,7 +220,7 @@ it.live(
 
 it.live('a write beside the home directory is not under it', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const facts = yield* factsFor({
       workspace: root,
@@ -234,7 +234,7 @@ it.live('a write beside the home directory is not under it', () =>
 
 it.live('a write away from a home directory that exists is not under it', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const facts = yield* factsFor({
       workspace: root,
@@ -259,7 +259,7 @@ const anotherRepository = (root: string): Promise<void> =>
 
 it.live('a write into another repository is said to be inside it', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => anotherRepository(root))
 
@@ -271,7 +271,7 @@ it.live('a write into another repository is said to be inside it', () =>
 
 it.live('a write deep inside another repository is said to be inside it', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => anotherRepository(root))
 
@@ -290,7 +290,7 @@ it.live(
   'a write into the repository’s own metadata is said to be, and not to be another repository',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const facts = yield* factsFor({ workspace: root, handle: writing('.git/hooks/pre-commit') })
 
@@ -309,7 +309,7 @@ it.live(
   'a write into the metadata of a working tree nested in another repository is not into another repository',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       yield* Effect.promise(() =>
         onDisk(
@@ -340,7 +340,7 @@ it.live(
   'a write into the hooks a linked worktree shares with its main checkout is into its own metadata',
   () =>
     Effect.gen(function* () {
-      const main = yield* workspace()
+      const main = yield* workspace
       const tree = `${outside(main)}/linked`
 
       yield* Effect.promise(() =>
@@ -369,7 +369,7 @@ it.live(
 
 it.live('a write over the metadata entry itself is said to be into the metadata', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const facts = yield* factsFor({ workspace: root, handle: writing('.git') })
 

@@ -86,7 +86,7 @@ const talk = (
   judge: Layer.Layer<Judge> = judging([refusing]),
   questions: ReadonlyArray<string> = ['tidy up'],
 ): Effect.Effect<Array<Activity>, AiError.AiError> =>
-  Effect.flatMap(workspace(), (root) => conversed(scripted(steps), questions, judged(root, judge)))
+  Effect.flatMap(workspace, (root) => conversed(scripted(steps), questions, judged(root, judge)))
 
 const calls = (activities: ReadonlyArray<Activity>): number =>
   activities.filter((activity) => activity.type === 'tool-call').length

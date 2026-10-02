@@ -17,7 +17,7 @@ afterEach(removeWorkspaces)
 
 it.live('a hook at the seam sees the call with its arguments in the tool’s own types', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const seen = yield* Ref.make<Array<Call<'write_file'>>>([])
 
@@ -37,7 +37,7 @@ it.live('a hook at the seam sees the call with its arguments in the tool’s own
 
 it.live('a hook that fails stops the call, and its failure is the tool’s answer', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(
       root,
@@ -57,8 +57,8 @@ it.live('a hook that fails stops the call, and its failure is the tool’s answe
 // answer's wording, which is write_file's own business.
 it.live('a hook that does nothing changes nothing', () =>
   Effect.gen(function* () {
-    const gated = yield* workspace()
-    const hooked = yield* workspace()
+    const gated = yield* workspace
+    const hooked = yield* workspace
 
     const without = yield* call(gated, (tools) =>
       tools.handle('write_file', { path: 'new.txt', content: 'hello' }),
@@ -80,7 +80,7 @@ it.live('a hook that does nothing changes nothing', () =>
 // is what the Gate's absence means, so it is asserted by a write the Gate refuses.
 it.live('with nothing at the seam, a tool runs unexamined', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* run(unhooked(root), (tools) =>
       tools.handle('write_file', { path: '../outside/new.txt', content: 'hello' }),
@@ -93,7 +93,7 @@ it.live('with nothing at the seam, a tool runs unexamined', () =>
 
 it.live('every tool passes through the seam on its way in', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const seen = yield* Ref.make<Array<Call>>([])
 

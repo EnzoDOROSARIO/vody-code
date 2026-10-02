@@ -57,7 +57,7 @@ const linked = (root: string): Promise<void> =>
 
 it.live('write_file inside the Perimeter happens exactly as it did', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('write_file', { path: 'inside/new.txt', content: 'hello' }),
@@ -72,7 +72,7 @@ it.live('write_file inside the Perimeter happens exactly as it did', () =>
 // that went ahead without a single question show the Judge was never consulted.
 it.live('a write inside the Perimeter never reaches the Judge', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const asked = yield* Queue.unbounded<Schema.Json>()
 
@@ -97,7 +97,7 @@ it.live(
   'a write outside the Perimeter that serves the Request goes ahead, however much it touches',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const outcome = yield* writeOutside(root, judgedAs(0.9, 0.8))
 
@@ -110,7 +110,7 @@ it.live(
   'a write outside the Perimeter unrelated to the Request does not happen, and says why',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const outcome = yield* writeOutside(root, judgedAs(0.1, 0.8))
 
@@ -149,7 +149,7 @@ it.live(
 
 it.live('a write outside the Perimeter that harms nothing goes ahead even unrequested', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* writeOutside(root, judgedAs(0.1, 0.2))
 
@@ -160,7 +160,7 @@ it.live('a write outside the Perimeter that harms nothing goes ahead even unrequ
 
 it.live('a write in the absolute band is refused even when it is plainly what was asked', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* writeOutside(root, judgedAs(1, 0.97))
 
@@ -187,7 +187,7 @@ it.live(
   'a write in the absolute band and unrequested names the low alignment beside the band',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const outcome = yield* writeOutside(root, judgedAs(0.2, 0.99))
 
@@ -223,7 +223,7 @@ const boundaries: ReadonlyArray<readonly [string, number, number, boolean]> = [
 
 it.live.each(boundaries)('%s', ([, serves, affects, allowed]) =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* writeOutside(root, judgedAs(serves, affects))
 
@@ -234,7 +234,7 @@ it.live.each(boundaries)('%s', ([, serves, affects, allowed]) =>
 
 it.live('edit_file outside the Perimeter, refused, leaves the file as it was', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* run(judged(root, judgedAs(0, 0.9)), (tools) =>
       tools.handle('edit_file', {
@@ -257,7 +257,7 @@ it.live('edit_file outside the Perimeter, refused, leaves the file as it was', (
 
 it.live('edit_file outside the Perimeter, allowed, edits the file', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* run(judged(root, judgedAs(0.9, 0.1)), (tools) =>
       tools.handle('edit_file', {
@@ -276,7 +276,7 @@ it.live(
   'write_file into the repository’s own metadata is judged, and refused when the Judge says so',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       const outcome = yield* run(judged(root, judgedAs(0.1, 0.99)), (tools) =>
         tools.handle('write_file', {
@@ -298,7 +298,7 @@ it.live(
 // as much the repository's as anything under it.
 it.live('write_file over the metadata entry itself is judged', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* run(judged(root, judgedAs(0.1, 0.99)), (tools) =>
       tools.handle('write_file', { path: '.git', content: 'gitdir: /elsewhere' }),
@@ -311,7 +311,7 @@ it.live('write_file over the metadata entry itself is judged', () =>
 
 it.live('edit_file inside the repository’s own metadata is judged', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* run(judged(root, judgedAs(0.1, 0.99)), (tools) =>
       tools.handle('edit_file', { path: '.git/HEAD', old_text: 'main', new_text: 'other' }),
@@ -329,7 +329,7 @@ it.live(
   'write_file through a link inside the tree that leads outside is judged where it lands',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       yield* Effect.promise(() => linked(root))
 
@@ -347,7 +347,7 @@ it.live(
 
 it.live('edit_file through a link inside the tree that leads outside is judged', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => linked(root))
 
@@ -365,7 +365,7 @@ it.live('edit_file through a link inside the tree that leads outside is judged',
 // nearest existing ancestor has to pass them on its way to the link.
 it.live('write_file below a link that leads outside is judged however deep the new path', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => linked(root))
 
@@ -383,7 +383,7 @@ it.live('write_file below a link that leads outside is judged however deep the n
 
 it.live('write_file through a link outside the tree that leads inside is allowed unasked', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => linked(root))
 
@@ -398,7 +398,7 @@ it.live('write_file through a link outside the tree that leads inside is allowed
 
 it.live('edit_file through a link outside the tree that leads inside is allowed unasked', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => linked(root))
 
@@ -417,7 +417,7 @@ it.live('edit_file through a link outside the tree that leads inside is allowed 
 
 it.live('write_file to a path whose directories do not exist yet is allowed inside the tree', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const outcome = yield* call(root, (tools) =>
       tools.handle('write_file', { path: 'inside/deep/er/new.txt', content: 'hello' }),

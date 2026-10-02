@@ -1,7 +1,13 @@
 import { NodeServices } from '@effect/platform-node'
 import { Effect, Exit, FileSystem, Layer, Ref, Stream } from 'effect'
+// The one `git init` the suite launches, once per test process; see `initialised`.
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- a process, run once, outside every effect
 import { execFile } from 'node:child_process'
+// The probes below sit outside the effects a test runs, as plain promises: what
+// `Bun.file` and `Bun.write` did for bun:test.
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- plain node promises, not Effects
 import * as Fs from 'node:fs/promises'
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- builds the fixture paths those probes take
 import * as NodePath from 'node:path'
 import { promisify } from 'node:util'
 import * as Util from 'node:util'
@@ -76,13 +82,25 @@ export const onDisk = <A>(effect: Effect.Effect<A, never, FileSystem.FileSystem>
 // Filesystem probes over plain node promises, for assertions and fixtures that sit
 // outside the effects a test runs: what `Bun.file` and `Bun.write` did for bun:test.
 // `write` reproduces `Bun.write`'s habit of creating the directories along the way.
-export const fileExists = async (path: string): Promise<boolean> =>
+export const fileExists = (path: string): Promise<boolean> =>
   Fs.stat(path).then(
     () => true,
     () => false,
   )
 
-export const readText = async (path: string): Promise<string> => Fs.readFile(path, 'utf8')
+export const readText = (path: string): Promise<string> => Fs.readFile(path, 'utf8')
+
+// The bytes of a file, as numbers a `toEqual` can compare byte for byte: how a test
+// looks past text decoding, at exactly what a write left on disk.
+export const bytesOf = (path: string): Promise<Array<number>> =>
+  Fs.readFile(path).then((bytes) => Array.from(bytes))
+
+export const fileSize = (path: string): Promise<number> => Fs.stat(path).then((info) => info.size)
+
+export const entriesOf = (path: string): Promise<Array<string>> => Fs.readdir(path)
+
+export const removeTree = (path: string): Promise<void> =>
+  Fs.rm(path, { recursive: true, force: true })
 
 export const write = (path: string, content: string | Uint8Array): Promise<void> =>
   Fs.mkdir(NodePath.dirname(path), { recursive: true }).then(() => Fs.writeFile(path, content))
@@ -185,33 +203,32 @@ const repository: Effect.Effect<Repository, never, FileSystem.FileSystem> = Effe
 // symbolic link, and the Perimeter resolves the Workspace to its real path before it
 // walks up looking for `.git`, so a test that compares against the root it finds would
 // otherwise have to resolve the link itself.
-export const workspace = (): Effect.Effect<string> =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
+export const workspace: Effect.Effect<string> = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
 
-    const base = yield* temporary
+  const base = yield* temporary
 
-    yield* fs.makeDirectory(`${base}/work/inside`, { recursive: true })
-    yield* fs.makeDirectory(`${base}/outside`, { recursive: true })
-    yield* fs.writeFile(`${base}/work/inside/keep.txt`, new TextEncoder().encode('kept'))
-    yield* fs.writeFile(`${base}/outside/secret.txt`, new TextEncoder().encode('secret'))
+  yield* fs.makeDirectory(`${base}/work/inside`, { recursive: true })
+  yield* fs.makeDirectory(`${base}/outside`, { recursive: true })
+  yield* fs.writeFile(`${base}/work/inside/keep.txt`, new TextEncoder().encode('kept'))
+  yield* fs.writeFile(`${base}/outside/secret.txt`, new TextEncoder().encode('secret'))
 
-    const { directories, files } = yield* repository
+  const { directories, files } = yield* repository
 
-    for (const directory of directories) {
-      yield* fs.makeDirectory(`${base}/work/.git/${directory}`, { recursive: true })
-    }
+  for (const directory of directories) {
+    yield* fs.makeDirectory(`${base}/work/.git/${directory}`, { recursive: true })
+  }
 
-    for (const [file, content] of files) {
-      yield* fs.writeFile(`${base}/work/.git/${file}`, content)
-    }
+  for (const [file, content] of files) {
+    yield* fs.writeFile(`${base}/work/.git/${file}`, content)
+  }
 
-    return yield* fs.realPath(`${base}/work`)
-  }).pipe(
-    Effect.orDie,
-    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-    Effect.provide(NodeServices.layer),
-  )
+  return yield* fs.realPath(`${base}/work`)
+}).pipe(
+  Effect.orDie,
+  // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+  Effect.provide(NodeServices.layer),
+)
 
 // The fixture directory beside the workspace, by its real path: `workspace` hands out
 // the real path of `work`, and `outside` is its sibling, so this is where a write past

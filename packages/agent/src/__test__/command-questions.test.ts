@@ -110,7 +110,7 @@ const factsFor = (root: string, command: string, request?: string) =>
 // the options the model called the tool with beyond the command itself.
 it.live('a command is put to the Judge exactly as written, with the Request exactly as typed', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     const command = "rm -rf dist  &&  bun run build # 'clean'"
 
@@ -125,7 +125,7 @@ it.live('a command is put to the Judge exactly as written, with the Request exac
 
 it.live('outside any Turn, the Judge is told there is no Request', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     expect(yield* factsFor(root, 'true')).toEqual({
       command: 'true',
@@ -155,7 +155,7 @@ it.live(
   'from a Workspace inside the working tree, the Judge is told the Perimeter is its root',
   () =>
     Effect.gen(function* () {
-      const root = yield* workspace()
+      const root = yield* workspace
 
       expect(yield* factsFor(`${root}/inside`, 'true')).toMatchObject({
         workspace: `${root}/inside`,

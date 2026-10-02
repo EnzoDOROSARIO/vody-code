@@ -1,22 +1,17 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { Effect, Stream } from 'effect'
-import * as Fs from 'node:fs/promises'
 
 import { call, text } from './harness.ts'
-import { readText, removeWorkspaces, workspace, write } from '#__test__/testing.ts'
+import { bytesOf, readText, removeWorkspaces, workspace, write } from '#__test__/testing.ts'
 import { TextNotFound, TextNotUnique } from '#tools/index.ts'
 
 afterEach(removeWorkspaces)
 
 const utf8 = (contents: string): Array<number> => [...new TextEncoder().encode(contents)]
 
-const bytesOf = async (target: string): Promise<Array<number>> => [
-  ...new Uint8Array(await Fs.readFile(target)),
-]
-
 it.live('edit_file replaces a unique occurrence and shows the edited lines', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/edit.txt`, 'one\ntwo\nthree'))
 
@@ -34,7 +29,7 @@ it.live('edit_file replaces a unique occurrence and shows the edited lines', () 
 
 it.live('edit_file inserts the replacement literally, dollar signs and all', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/edit.txt`, 'before'))
 
@@ -48,7 +43,7 @@ it.live('edit_file inserts the replacement literally, dollar signs and all', () 
 
 it.live('edit_file refuses an ambiguous match rather than picking the first', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/edit.txt`, 'one two one'))
 
@@ -69,7 +64,7 @@ it.live('edit_file refuses an ambiguous match rather than picking the first', ()
 
 it.live('edit_file changes every occurrence when asked to', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/edit.txt`, 'one two one'))
 
@@ -89,7 +84,7 @@ it.live('edit_file changes every occurrence when asked to', () =>
 
 it.live('edit_file leaves the file untouched when the text is not there', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/edit.txt`, 'one two'))
 
@@ -108,7 +103,7 @@ it.live('edit_file leaves the file untouched when the text is not there', () =>
 
 it.live('edit_file rejects an empty old_text instead of prepending', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/edit.txt`, 'one two'))
 
@@ -127,7 +122,7 @@ it.live('edit_file rejects an empty old_text instead of prepending', () =>
 
 it.live('edit_file matches old_text written with newlines against a file using CRLF', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/crlf.txt`, 'one\r\ntwo\r\nthree\r\n'))
 
@@ -148,7 +143,7 @@ it.live('edit_file matches old_text written with newlines against a file using C
 
 it.live('edit_file shows the edited lines without the carriage returns around them', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/crlf.txt`, 'one\r\ntwo\r\nthree\r\n'))
 
@@ -164,7 +159,7 @@ it.live('edit_file shows the edited lines without the carriage returns around th
 
 it.live('edit_file leaves a file of mixed line endings alone outside the part it changed', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/mixed.txt`, 'one\r\ntwo\nthree\r\n'))
 
@@ -178,7 +173,7 @@ it.live('edit_file leaves a file of mixed line endings alone outside the part it
 
 it.live('edit_file reaches every occurrence of mixed endings when replacing all', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/n.txt`, 'a\r\nX\r\nb\r\nc\nX\nd\n'))
 
@@ -198,7 +193,7 @@ it.live('edit_file reaches every occurrence of mixed endings when replacing all'
 
 it.live('edit_file counts occurrences of either framing before calling a match unique', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/n.txt`, 'a\r\nX\r\nb\r\nc\nX\nd\n'))
 
@@ -215,7 +210,7 @@ it.live('edit_file counts occurrences of either framing before calling a match u
 
 it.live('edit_file keeps the byte order mark a file opened with', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/bom.txt`, '\uFEFFone\ntwo\n'))
 
@@ -236,7 +231,7 @@ it.live('edit_file keeps the byte order mark a file opened with', () =>
 
 it.live('edit_file does not match a byte order mark the model could not have seen', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/bom.txt`, '\uFEFFone\n'))
 
@@ -256,7 +251,7 @@ it.live('edit_file does not match a byte order mark the model could not have see
 
 it.live('edit_file lets write_file overwrite afterwards, having read the file itself', () =>
   Effect.gen(function* () {
-    const root = yield* workspace()
+    const root = yield* workspace
 
     yield* Effect.promise(() => write(`${root}/edit.txt`, 'one'))
 
