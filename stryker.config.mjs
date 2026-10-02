@@ -1,8 +1,7 @@
 // The vitest runner gives Stryker real per-test coverage analysis: each mutant
-// narrows to the tests that reach it, so a run costs mutant × affected tests
-// rather than a whole suite per mutant. That replaces the command runner this
-// config used under bun, which could only report a run at a time because bun's
-// test runner has no Stryker plugin.
+// narrows to the tests that reach it, not for a whole suite per mutant — what the
+// command runner this config replaced under bun could only report a run at a time,
+// because bun's test runner has no Stryker plugin.
 
 /** @type {import('@stryker-mutator/api/core').PartialStrykerOptions} */
 export default {
@@ -10,7 +9,22 @@ export default {
   plugins: ['@stryker-mutator/vitest-runner'],
   coverageAnalysis: 'perTest',
 
-  mutate: ['packages/*/src/**/*.ts', 'packages/*/src/**/*.tsx', '!packages/*/src/**/__test__/**'],
+  // The mutation run is a unit gate: it executes the tests of vitest.mutation.config.ts,
+  // the ones that need no filesystem, no git, no child process, no network, and the
+  // mutate set is what those tests reach — the TUI's sources today. A mutant is paid for
+  // in memory-only work, so the whole run takes about half a minute. Code only the infra suites
+  // reach (the tools, the Gates, the loop over real handlers) is not mutated here: its
+  // assurance is the suites that run it for real, and the way to put it under mutation
+  // is to make its tests unit first, which grows this set by the same stroke.
+  mutate: [
+    'packages/tui/src/**/*.ts',
+    'packages/tui/src/**/*.tsx',
+    '!packages/tui/src/**/__test__/**',
+  ],
+
+  // The vitest runner resolves the project's own vite.config.ts by default, whose
+  // include is the whole suite; this points it at the unit tests alone.
+  vitest: { configFile: 'vitest.mutation.config.ts' },
 
   // `repos/` is the vendored Effect checkout, 53M of source this repo never runs;
   // copying it into the sandbox would dwarf the code under test.
