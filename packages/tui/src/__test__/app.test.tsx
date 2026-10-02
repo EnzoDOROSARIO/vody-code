@@ -1,13 +1,13 @@
 import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { Response } from 'effect/unstable/ai'
+import { AiError, Response } from 'effect/unstable/ai'
 
 import { App, Prompt, Transcript, keystroke, transcribe, written } from '#app.tsx'
 import { BOLD, DIM, GREY_BACKGROUND, colourful, plain } from './testing.ts'
 
 import { CommandRefused } from 'agent'
 
-import type { Impasse, ToolResult } from 'agent'
+import type { Breakdown, Impasse, ToolResult } from 'agent'
 import type { Line } from '#app.tsx'
 import type { Chord } from '#app.tsx'
 
@@ -83,6 +83,24 @@ it('bash quotes its output back, exit status first, and the others stay quiet', 
   expect(transcribe(readFile)).toBeUndefined()
 })
 
+// The quote is cut to the preview, keeping the front: output that ran long still shows
+// the exit status the first line is there for.
+it('bash output longer than the preview is cut, keeping the front', () => {
+  const long: ToolResult = Response.toolResultPart({
+    encodedResult: `x${'y'.repeat(300)}tail`,
+    id: 'call-6',
+    isFailure: false,
+    name: 'bash',
+    preliminary: false,
+    providerExecuted: false,
+    result: `x${'y'.repeat(300)}tail`,
+  })
+
+  expect(transcribe(long)?.text).toHaveLength(200)
+  expect(transcribe(long)?.text.startsWith('x')).toBe(true)
+  expect(transcribe(long)?.text.endsWith('tail')).toBe(false)
+})
+
 it('a tool that failed says which tool, and why', () => {
   const refused: ToolResult = Response.toolResultPart({
     encodedResult: {},
@@ -97,6 +115,30 @@ it('a tool that failed says which tool, and why', () => {
   expect(transcribe(refused)).toEqual({
     source: 'result',
     text: 'bash failed: rm -rf is not allowed here',
+  })
+})
+
+// The model's own errors are failures a tool result can carry too, and they state
+// themselves in `message` rather than `reason`. Quoting `reason` here would leave the
+// line holding the word for nothing.
+it('a failure of the model the tool ran under says what the framework said', () => {
+  const modelFailure: ToolResult = Response.toolResultPart({
+    encodedResult: {},
+    id: 'call-5',
+    isFailure: true,
+    name: 'bash',
+    preliminary: false,
+    providerExecuted: false,
+    result: AiError.make({
+      method: 'streamText',
+      module: 'OpenAI',
+      reason: new AiError.RateLimitError({}),
+    }),
+  })
+
+  expect(transcribe(modelFailure)).toEqual({
+    source: 'result',
+    text: 'bash failed: OpenAI.streamText: Rate limit exceeded',
   })
 })
 
@@ -126,13 +168,13 @@ const ENDED =
 // Impasse, so the second has to say so, or the person waits for an answer that is not
 // coming.
 it('a Turn that reached an Impasse says so, and says it is over', () => {
-  expect(transcribe(impasse)).toEqual({ source: 'impasse', text: ENDED })
+  expect(transcribe(impasse)).toEqual({ source: 'loop', text: ENDED })
 })
 
 it('an Impasse stands out from the agent and its tools', () => {
   const lines: ReadonlyArray<Line> = [
     { source: 'agent', text: 'let me try' },
-    { source: 'impasse', text: ENDED },
+    { source: 'loop', text: ENDED },
   ]
 
   const [agent, ended] = colourful(<Transcript lines={lines} />, 400).split('\n')
@@ -141,6 +183,34 @@ it('an Impasse stands out from the agent and its tools', () => {
   expect(ended).toContain(BOLD)
   expect(ended).not.toContain(GREY_BACKGROUND)
   expect(plain(<Transcript lines={lines} />, 400)).toBe(`let me try\n${ENDED}`)
+})
+
+const breakdown: Breakdown = {
+  reason: 'OpenAI.streamText: Rate limit exceeded',
+  type: 'breakdown',
+}
+
+const BROKE =
+  'The Turn ended without an answer: the model broke down — OpenAI.streamText: Rate limit exceeded. Ask again, or do this part yourself.'
+
+// A Turn the model broke ends the way one the Gates ended does: the loop's last word,
+// said in bold, with the reason it carried named in the line.
+it('a Turn the model broke says so, and says why', () => {
+  expect(transcribe(breakdown)).toEqual({ source: 'loop', text: BROKE })
+})
+
+it('a Breakdown stands out the way an Impasse does', () => {
+  const lines: ReadonlyArray<Line> = [
+    { source: 'agent', text: 'let me try' },
+    { source: 'loop', text: BROKE },
+  ]
+
+  const [agent, ended] = colourful(<Transcript lines={lines} />, 400).split('\n')
+
+  expect(agent).toBe('let me try')
+  expect(ended).toContain(BOLD)
+  expect(ended).not.toContain(GREY_BACKGROUND)
+  expect(plain(<Transcript lines={lines} />, 400)).toBe(`let me try\n${BROKE}`)
 })
 
 it('the reply is the agent speaking, not a tool', () => {
@@ -209,7 +279,7 @@ it('a tool line carries a grey background and dim text, and the rest carry neith
 })
 
 // Only the agent writes markdown. What you typed is shown back exactly as typed, so a
-// glob or a star in a question survives, and a tool's output is text some other program
+// glob or a star in a request survives, and a tool's output is text some other program
 // chose and is no one's to reformat.
 it('the agent is read as markdown, and nobody else is', () => {
   expect(plain(<Transcript lines={[{ source: 'agent', text: 'see `a.ts` and **b**' }]} />)).toBe(
@@ -277,6 +347,15 @@ it('backspace and delete each take the last character back', () => {
   expect(keystroke(false, chord({ delete: true }), '', 'hi')).toEqual({
     submit: false,
     value: 'h',
+  })
+  // Three characters, so taking the last is told apart from keeping only the first.
+  expect(keystroke(false, chord({ backspace: true }), '', 'hey')).toEqual({
+    submit: false,
+    value: 'he',
+  })
+  expect(keystroke(false, chord({ delete: true }), '', 'hey')).toEqual({
+    submit: false,
+    value: 'he',
   })
 })
 

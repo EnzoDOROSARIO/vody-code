@@ -10,8 +10,8 @@ particular here, so the code and the conversation about it stay in step.
 
 **Turn**:
 Everything that follows one thing you typed, up to the agent's final answer, or up to
-an Impasse if the Gates end it first. A turn may reach for tools many times before it
-ends.
+an Impasse if the Gates end it first, or a Breakdown if the model does. A turn may
+reach for tools many times before it ends.
 _Avoid_: Round, exchange, iteration
 
 **Impasse**:
@@ -19,6 +19,12 @@ How a Turn ends when the Gates have refused so many acts, with none allowed in b
 that the loop stops sending the model back to try again. The Turn ends with no answer,
 and the Impasse is its last Activity.
 _Avoid_: Gate closed, stall, abort, giving up
+
+**Breakdown**:
+How a Turn ends when the model itself fails: the call to the provider broke, so there
+is no answer and nothing to send back to. The Turn ends with no answer, and the
+Breakdown is its last Activity, carrying the reason the call broke.
+_Avoid_: Crash, error, failure, outage
 
 **Request**:
 What you typed to start the current Turn, exactly as you typed it. Every Turn has one;
@@ -28,8 +34,8 @@ _Avoid_: Question, prompt, input, message
 
 **Activity**:
 One thing that happened on the way to the end of a Turn, reported as it happens:
-something the agent did, or the loop's own report of an Impasse. An Activity is a
-report, never a rendering: what it looks like is the screen's business.
+something the agent did, or the loop's own report of an Impasse or a Breakdown. An
+Activity is a report, never a rendering: what it looks like is the screen's business.
 _Avoid_: Event, message, update
 
 **Workspace**:

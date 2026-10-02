@@ -9,6 +9,11 @@ import type { Tools } from './tools/index.ts'
 // A streamed tool call carries its arguments as the JSON the model sent, which the
 // provider never type-checked. Parsing them back through the tool's own parameter
 // schema is what makes them arguments again rather than an anonymous payload.
+//
+// Stryker disable next-line ArrowFunction: `callTo` runs only at module load, where the
+// per-test coverage attributes no test to it, so a broken body is counted however the
+// suite answers — and it cannot be answered with: the load of every file importing the
+// union fails, tests included.
 const callTo = <Name extends string, Params extends Schema.Top>(
   name: Name,
   params: Params,
@@ -69,8 +74,20 @@ export type Impasse = {
   readonly type: 'impasse'
 }
 
+/**
+ * The Breakdown: the Turn ended without an answer, because the call to the model itself
+ * failed. Parallel to the Impasse — both are the loop's report that a Turn ended without
+ * an answer — but where an Impasse follows refusals already reported as they happened, a
+ * Breakdown follows nothing the loop could report, so it carries the reason the call
+ * broke, in the words the failure gave it.
+ */
+export type Breakdown = {
+  readonly reason: string
+  readonly type: 'breakdown'
+}
+
 // One thing that happened on the way to the end of a Turn: something the agent did, or
-// the loop's own report that the Turn is over. Every one of these is a report of what
-// happened, never a rendering of it: the agent writes to no screen, and whoever is
-// watching decides how, and whether, each is shown.
-export type Activity = Impasse | Reply | ToolCall | ToolResult
+// the loop's own report that the Turn is over — an Impasse, or a Breakdown. Every one of
+// these is a report of what happened, never a rendering of it: the agent writes to no
+// screen, and whoever is watching decides how, and whether, each is shown.
+export type Activity = Breakdown | Impasse | Reply | ToolCall | ToolResult

@@ -1,15 +1,16 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import type { Layer } from 'effect'
-import type { AiError, Response } from 'effect/unstable/ai'
+import type { Response } from 'effect/unstable/ai'
 
 import { answering, judging, rejected } from './judging.ts'
-import { conversed, judged, removeWorkspaces, workspace } from './testing.ts'
+import { judged, removeWorkspaces, scriptedModel, sessioned, workspace } from './testing.ts'
 import { ActRefused, JudgeDidNotAnswer } from '#tools/index.ts'
 
 import type { Reply } from './judging.ts'
 import type { Script } from './testing.ts'
 import type { Activity } from '#activity.ts'
+import type { InstructionsUnreadable } from '#prompt.ts'
 import type { Judge } from '#judge.ts'
 
 afterEach(removeWorkspaces)
@@ -84,9 +85,11 @@ const repeated = (step: Step, times: number): ReadonlyArray<Step> =>
 const talk = (
   steps: ReadonlyArray<Step>,
   judge: Layer.Layer<Judge> = judging([refusing]),
-  questions: ReadonlyArray<string> = ['tidy up'],
-): Effect.Effect<Array<Activity>, AiError.AiError> =>
-  Effect.flatMap(workspace, (root) => conversed(scripted(steps), questions, judged(root, judge)))
+  requests: ReadonlyArray<string> = ['tidy up'],
+): Effect.Effect<Array<Activity>, InstructionsUnreadable> =>
+  Effect.flatMap(workspace, (root) =>
+    sessioned(scriptedModel(scripted(steps)), requests, judged(root, judge)),
+  )
 
 const calls = (activities: ReadonlyArray<Activity>): number =>
   activities.filter((activity) => activity.type === 'tool-call').length
@@ -245,7 +248,7 @@ it.live('refusals because the Judge did not answer count alongside judged ones',
 )
 
 // Two refusals in one Turn and two in the next are two Turns each short of the cap. The
-// model's turns run on across questions, so the second question's steps follow the
+// model's turns run on across Requests, so the second Request's steps follow the
 // first's answer in the script.
 it.live('each Turn counts its refusals from none', () =>
   Effect.gen(function* () {

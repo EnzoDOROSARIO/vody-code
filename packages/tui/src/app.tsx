@@ -5,25 +5,25 @@ import { useReducer, useState } from 'react'
 import { casesHandled } from './defects.ts'
 import { Markdown } from './markdown/index.tsx'
 
-import type { Activity, Impasse, ToolCall, ToolFailure, ToolResult } from 'agent'
+import type { Activity, Breakdown, Impasse, ToolCall, ToolFailure, ToolResult } from 'agent'
 import type { Key } from 'ink'
 import type { ReactElement } from 'react'
 
-export type Ask = (question: string, show: (activity: Activity) => void) => Promise<void>
+export type Ask = (request: string, show: (activity: Activity) => void) => Promise<void>
 
 /**
- * Who put a line in the transcript, which is all its styling depends on. `impasse` is
- * the agent too, but the loop speaking rather than the model: the Turn is over, and not
- * because the model had finished.
+ * Who put a line in the transcript, which is all its styling depends on. `loop` is the
+ * agent too, but the turn loop speaking rather than the model: the Turn is over, and not
+ * because the model had finished — an Impasse, or a Breakdown.
  */
-export type Source = 'agent' | 'call' | 'impasse' | 'result' | 'you'
+export type Source = 'agent' | 'call' | 'loop' | 'result' | 'you'
 
 /**
  * One line of the transcript.
  *
  * A line the agent is still writing carries the id of the block of prose it holds, so
  * the next fragment of that block knows to land on the end of it. Everything else — a
- * question, a tool, a turn that broke — arrives whole and has no id to carry.
+ * request, a tool, a turn that broke — arrives whole and has no id to carry.
  */
 export type Line = {
   readonly id?: string
@@ -75,11 +75,25 @@ const gave = (result: ToolResult): string | undefined => {
   return result.name === 'bash' ? result.result.slice(0, PREVIEW_CHARACTERS) : undefined
 }
 
-// A Turn that reached an Impasse hands the prompt back just as one that answered does, so the
-// line has to say it is over and why, or the person sits waiting for an answer that is
+// Both of the loop's endings are said in one voice — the Turn is over, with no answer —
+// and they differ in why it ended, and in how asking again could help: an Impasse wants
+// the request asked another way, where a model that broke may just answer the same one.
+const ended = (why: string, again: string): string =>
+  `The Turn ended without an answer: ${why}. ${again}, or do this part yourself.`
+
+// A Turn that reached an Impasse hands the prompt back just as one that answered does, so
+// the line has to say it is over and why, or the person sits waiting for an answer that is
 // not coming. The refusals themselves are the lines above it, each with its reasons.
 const stopped = (impasse: Impasse): string =>
-  `The Turn ended without an answer: the Gates refused ${impasse.refusals} acts with none allowed in between, so the agent stopped trying. Ask again another way, or do this part yourself.`
+  ended(
+    `the Gates refused ${impasse.refusals} acts with none allowed in between, so the agent stopped trying`,
+    'Ask again another way',
+  )
+
+// A Turn the model broke ends the same way, and the line says why in the words the
+// failure gave it: nothing the model wrote after the break is coming either.
+const broke = (breakdown: Breakdown): string =>
+  ended(`the model broke down — ${breakdown.reason}`, 'Ask again')
 
 export const transcribe = (activity: Activity): Line | undefined => {
   switch (activity.type) {
@@ -94,7 +108,9 @@ export const transcribe = (activity: Activity): Line | undefined => {
     }
 
     case 'impasse':
-      return { source: 'impasse', text: stopped(activity) }
+      return { source: 'loop', text: stopped(activity) }
+    case 'breakdown':
+      return { source: 'loop', text: broke(activity) }
     // Stryker disable next-line ConditionalExpression: every Activity has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
     default:
       return casesHandled(activity)
@@ -138,7 +154,7 @@ const Entry = ({ line }: { readonly line: Line }): ReactElement => {
 
   // The loop's last word on a Turn is set in bold, with none of a tool's grey, so it
   // reads as neither the model talking nor a tool's output.
-  if (line.source === 'impasse') {
+  if (line.source === 'loop') {
     return <Text bold>{line.text}</Text>
   }
 
@@ -195,6 +211,10 @@ export const Prompt = ({
 
 export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   const { isRawModeSupported } = useStdin()
+  // Stryker disable next-line ArrayDeclaration: the seed is a transcript nobody typed yet,
+  // and it can only be seen through `Entry`, which reads a seeded non-line's `text` as
+  // undefined and paints nothing, while `written` appends on a missing id without ever
+  // reading the seed's shape — no render can tell a seeded transcript from an empty one.
   const [lines, write] = useReducer(written, [])
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
@@ -207,12 +227,16 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
     }
   }
 
-  const submit = (question: string): void => {
+  const submit = (request: string): void => {
     setBusy(true)
-    write({ source: 'you', text: `> ${question}` })
+    write({ source: 'you', text: `> ${request}` })
 
-    ask(question, show)
-      .catch((error: Error) => write({ source: 'agent', text: error.message }))
+    // A Turn the model broke is an Activity like any other, so a rejection here is a
+    // defect in the session, not an ending the transcript has a word for. It is said in
+    // the loop's voice, and the prompt comes back either way, so nobody is left waiting
+    // on a Turn that already ended.
+    ask(request, show)
+      .catch((error: Error) => write({ source: 'loop', text: error.message }))
       .finally(() => setBusy(false))
   }
 
@@ -226,6 +250,9 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
         submit(value)
       }
     },
+    // Stryker disable next-line ObjectLiteral: the option gates the handler on a terminal
+    // being attached, which a string render never has, so with it or without it the
+    // handler is inactive and no test can tell the two apart.
     { isActive: isRawModeSupported },
   )
 
