@@ -93,23 +93,31 @@ const met = (step: Step, result: ToolResult): Step => {
 const tallied = (refusals: number, step: Step): number =>
   step.allowed && step.refused === 0 ? 0 : refusals + step.refused
 
+/** What one Turn's loop carries through every call of the model: the conversation it
+ * continues, the handlers it reaches for, and the Turn's refusal count, made once in
+ * `answer` and cleared only by a call that got a gated act through and was refused
+ * nothing. The words of the moment vary call to call, so they are `respond`'s own
+ * argument and not part of this. */
+type Turn = {
+  readonly chat: Chat.Chat
+  readonly refusals: Ref.Ref<number>
+  readonly tools: Toolkit.WithHandler<Tools>
+}
+
 // One call of the model and, if it reached for a tool, the calls after it. This is the
 // recursion `answer` wraps, kept apart from it so the Request is provided once around
 // the whole Turn: a continuation prompts the model with nothing, and one that provided
-// its own Request would replace the person's words with none halfway through. The
-// refusal count is the Turn's too, made once in `answer` and carried through every call.
+// its own Request would replace the person's words with none halfway through.
 const respond = (
-  chat: Chat.Chat,
-  tools: Toolkit.WithHandler<Tools>,
+  turn: Turn,
   prompt: Prompt.RawInput,
-  refusals: Ref.Ref<number>,
 ): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
   Stream.unwrap(
     Effect.gen(function* () {
       const calledTools = yield* Ref.make(false)
       const step = yield* Ref.make(UNTOUCHED)
 
-      const turn = chat.streamText({ prompt, toolkit: tools }).pipe(
+      const call = turn.chat.streamText({ prompt, toolkit: turn.tools }).pipe(
         Stream.tap((part) => {
           if (part.type === 'tool-call') {
             return Ref.set(calledTools, true)
@@ -131,7 +139,7 @@ const respond = (
         Effect.gen(function* () {
           const reached = yield* Ref.get(calledTools)
           const gated = yield* Ref.get(step)
-          const count = yield* Ref.updateAndGet(refusals, (current) => tallied(current, gated))
+          const count = yield* Ref.updateAndGet(turn.refusals, (current) => tallied(current, gated))
 
           if (!reached) {
             return Stream.empty
@@ -139,11 +147,11 @@ const respond = (
 
           return count >= REFUSALS_BEFORE_AN_IMPASSE
             ? Stream.succeed<Activity>({ refusals: count, type: 'impasse' })
-            : respond(chat, tools, [], refusals)
+            : respond(turn, [])
         }),
       )
 
-      return Stream.concat(turn, rest)
+      return Stream.concat(call, rest)
     }),
   )
 
@@ -172,5 +180,9 @@ export const answer = (
   request: string,
 ): Stream.Stream<Activity, never, LanguageModel.LanguageModel> =>
   Stream.unwrap(
-    Effect.map(Ref.make(0), (refusals) => respond(chat, tools, request, refusals)),
+    Effect.gen(function* () {
+      const turn: Turn = { chat, refusals: yield* Ref.make(0), tools }
+
+      return respond(turn, request)
+    }),
   ).pipe(Stream.provideService(Request, Option.some(request)), Stream.catchTag('AiError', broken))

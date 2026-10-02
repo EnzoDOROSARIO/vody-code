@@ -36,11 +36,15 @@ export { Workspace } from './workspace.ts'
 
 export { JudgeCredentialsRequired } from './judge.ts'
 
-export { answer } from './turn.ts'
-
-export { ToolCall } from './activity.ts'
-
-export type { Activity, Breakdown, Impasse, Reply, ToolFailure, ToolResult } from './activity.ts'
+export type {
+  Activity,
+  Breakdown,
+  Impasse,
+  Reply,
+  ToolCall,
+  ToolFailure,
+  ToolResult,
+} from './activity.ts'
 
 export type { Handlers, Tools } from './tools/index.ts'
 

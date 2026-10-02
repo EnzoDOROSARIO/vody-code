@@ -14,7 +14,7 @@ export const main: Effect.Effect<void, never, Session> = Effect.scoped(
     // ask is total, so leaving the runtime as a promise hands over nothing: the Turn's
     // every ending is already an Activity the App was shown.
     // oxlint-disable-next-line effecttsgo/run-effect-inside-effect -- the ask is a promise the App holds, outside any fiber of this one
-    const ask: Ask = (question, show) => Effect.runPromise(agent.ask(question, show))
+    const ask: Ask = (request, show) => Effect.runPromise(agent.ask(request, show))
 
     const app = yield* Effect.acquireRelease(
       Effect.sync(() => render(<App ask={ask} />)),

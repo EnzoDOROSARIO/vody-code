@@ -9,7 +9,7 @@ import type { Activity, Breakdown, Impasse, ToolCall, ToolFailure, ToolResult } 
 import type { Key } from 'ink'
 import type { ReactElement } from 'react'
 
-export type Ask = (question: string, show: (activity: Activity) => void) => Promise<void>
+export type Ask = (request: string, show: (activity: Activity) => void) => Promise<void>
 
 /**
  * Who put a line in the transcript, which is all its styling depends on. `loop` is the
@@ -23,7 +23,7 @@ export type Source = 'agent' | 'call' | 'loop' | 'result' | 'you'
  *
  * A line the agent is still writing carries the id of the block of prose it holds, so
  * the next fragment of that block knows to land on the end of it. Everything else — a
- * question, a tool, a turn that broke — arrives whole and has no id to carry.
+ * request, a tool, a turn that broke — arrives whole and has no id to carry.
  */
 export type Line = {
   readonly id?: string
@@ -75,16 +75,25 @@ const gave = (result: ToolResult): string | undefined => {
   return result.name === 'bash' ? result.result.slice(0, PREVIEW_CHARACTERS) : undefined
 }
 
+// Both of the loop's endings are said in one voice — the Turn is over, with no answer —
+// and they differ in why it ended, and in how asking again could help: an Impasse wants
+// the request asked another way, where a model that broke may just answer the same one.
+const ended = (why: string, again: string): string =>
+  `The Turn ended without an answer: ${why}. ${again}, or do this part yourself.`
+
 // A Turn that reached an Impasse hands the prompt back just as one that answered does, so
 // the line has to say it is over and why, or the person sits waiting for an answer that is
 // not coming. The refusals themselves are the lines above it, each with its reasons.
 const stopped = (impasse: Impasse): string =>
-  `The Turn ended without an answer: the Gates refused ${impasse.refusals} acts with none allowed in between, so the agent stopped trying. Ask again another way, or do this part yourself.`
+  ended(
+    `the Gates refused ${impasse.refusals} acts with none allowed in between, so the agent stopped trying`,
+    'Ask again another way',
+  )
 
 // A Turn the model broke ends the same way, and the line says why in the words the
 // failure gave it: nothing the model wrote after the break is coming either.
 const broke = (breakdown: Breakdown): string =>
-  `The Turn ended without an answer: the model broke down — ${breakdown.reason}. Ask again, or do this part yourself.`
+  ended(`the model broke down — ${breakdown.reason}`, 'Ask again')
 
 export const transcribe = (activity: Activity): Line | undefined => {
   switch (activity.type) {
@@ -218,16 +227,16 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
     }
   }
 
-  const submit = (question: string): void => {
+  const submit = (request: string): void => {
     setBusy(true)
-    write({ source: 'you', text: `> ${question}` })
+    write({ source: 'you', text: `> ${request}` })
 
     // A Turn the model broke is an Activity like any other, so a rejection here is a
-    // defect in the session, not an ending the transcript has no word for. The line says
-    // what broke, and the prompt comes back either way, so nobody is left waiting on a
-    // Turn that already ended.
-    ask(question, show)
-      .catch((error: Error) => write({ source: 'agent', text: error.message }))
+    // defect in the session, not an ending the transcript has a word for. It is said in
+    // the loop's voice, and the prompt comes back either way, so nobody is left waiting
+    // on a Turn that already ended.
+    ask(request, show)
+      .catch((error: Error) => write({ source: 'loop', text: error.message }))
       .finally(() => setBusy(false))
   }
 

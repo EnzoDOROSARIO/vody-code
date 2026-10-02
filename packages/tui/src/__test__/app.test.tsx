@@ -279,7 +279,7 @@ it('a tool line carries a grey background and dim text, and the rest carry neith
 })
 
 // Only the agent writes markdown. What you typed is shown back exactly as typed, so a
-// glob or a star in a question survives, and a tool's output is text some other program
+// glob or a star in a request survives, and a tool's output is text some other program
 // chose and is no one's to reformat.
 it('the agent is read as markdown, and nobody else is', () => {
   expect(plain(<Transcript lines={[{ source: 'agent', text: 'see `a.ts` and **b**' }]} />)).toBe(

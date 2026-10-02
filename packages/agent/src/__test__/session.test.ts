@@ -98,7 +98,7 @@ it.live('a model failure mid-Turn is reported as the Breakdown, and the ask reso
 )
 
 // The ask is total: the Turn ended at a Breakdown, and the session's ask resolved with
-// it reported. So the next question starts a Turn of its own, in the same conversation.
+// it reported. So the next Request starts a Turn of its own, in the same conversation.
 it.live('a Turn that ended at a Breakdown does not stop the session', () =>
   Effect.gen(function* () {
     const root = yield* workspace()
@@ -109,7 +109,7 @@ it.live('a Turn that ended at a Breakdown does not stop the session', () =>
       judged(root, allowing),
     )
 
-    // The second question's Turn ran whole: its fragments are the last things said.
+    // The second Request's Turn ran whole: its fragments are the last things said.
     expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'all of it', type: 'reply' })
     expect(activities.filter((activity) => activity.type === 'breakdown')).toHaveLength(1)
   }),

@@ -6,7 +6,7 @@ import * as NodePath from 'node:path'
 import { promisify } from 'node:util'
 import * as Util from 'node:util'
 
-import { Chat, LanguageModel, Prompt } from 'effect/unstable/ai'
+import { LanguageModel } from 'effect/unstable/ai'
 
 import type { Path } from 'effect'
 import type { AiError, Response } from 'effect/unstable/ai'
@@ -15,8 +15,8 @@ import type { ChildProcessSpawner } from 'effect/unstable/process'
 const execFileP = promisify(execFile)
 
 import { allowing } from './judging.ts'
-import { Session, answer, handlers } from '#index.ts'
-import { Hooks, toolkit, toolkitLayer } from '#tools/index.ts'
+import { Session, handlers } from '#index.ts'
+import { Hooks, toolkitLayer } from '#tools/index.ts'
 import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
@@ -221,9 +221,9 @@ export const outside = (root: string): string => `${root.slice(0, root.lastIndex
 
 /**
  * What the language model streams back on each turn of a conversation, as a function
- * of the turn number: turn 0 is the answer to the first question, turn 1 to whatever
- * follows it, and so on. A turn whose parts carry no `tool-call` ends the question; one
- * with a `tool-call` sends the loop round again, to the next turn.
+ * of the turn number: turn 0 is the answer to the first Request, turn 1 to whatever
+ * follows it, and so on. A turn whose parts carry no `tool-call` ends that Request's
+ * Turn; one with a `tool-call` sends the loop round again, to the next turn.
  */
 export type Script = (turn: number) => Array<Response.StreamPartEncoded>
 
@@ -270,39 +270,7 @@ export const brokenModel = (
   )
 
 /**
- * Put each question to the agent in turn, in one conversation, over `tools`, and collect
- * every Activity it reported along the way. `asked` is this over the default services;
- * a test that needs a Perimeter to be outside of, or a Judge that refuses, builds its own
- * with `judged` and comes here directly.
- */
-export const conversed = (
-  script: Script,
-  questions: ReadonlyArray<string>,
-  tools: Layer.Layer<NodeServices.NodeServices | Handlers>,
-): Effect.Effect<Array<Activity>> => {
-  const program = Effect.gen(function* () {
-    const kit = yield* toolkit
-    const session = yield* Chat.fromPrompt(Prompt.empty)
-
-    const seen: Array<Activity> = []
-
-    for (const question of questions) {
-      yield* Stream.runForEach(answer(session, kit, question), (activity) =>
-        Effect.sync(() => {
-          seen.push(activity)
-        }),
-      )
-    }
-
-    return seen
-  })
-
-  // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-  return program.pipe(Effect.provide(Layer.mergeAll(scriptedModel(script), tools)))
-}
-
-/**
- * Put each question to the agent's session, in one conversation, and collect every
+ * Put each Request to the agent's session, in one conversation, and collect every
  * Activity it reported along the way — through the callback the session hands them to,
  * the way a screen receives them. The model is the one given, so a test that wants the
  * Turn broken mid-way builds a `brokenModel`; the Workspace is whatever `tools`
@@ -311,7 +279,7 @@ export const conversed = (
  */
 export const sessioned = (
   model: Layer.Layer<LanguageModel.LanguageModel>,
-  questions: ReadonlyArray<string>,
+  requests: ReadonlyArray<string>,
   tools: Layer.Layer<NodeServices.NodeServices | Handlers>,
 ): Effect.Effect<Array<Activity>, InstructionsUnreadable> => {
   const program = Effect.gen(function* () {
@@ -319,8 +287,8 @@ export const sessioned = (
 
     const seen: Array<Activity> = []
 
-    for (const question of questions) {
-      yield* agent.ask(question, (activity) => {
+    for (const request of requests) {
+      yield* agent.ask(request, (activity) => {
         seen.push(activity)
       })
     }
@@ -341,13 +309,14 @@ export const sessioned = (
 }
 
 /**
- * Put each question to the agent in turn, in one conversation, and collect every
- * Activity it reported along the way. The directory the tests were started in is the
- * Workspace, so the tools the script reaches for run against this repository, through
- * whatever `hooks` puts at the seam.
+ * Put each Request to the agent in turn, in one conversation, and collect every Activity
+ * it reported along the way. The directory the tests were started in is the Workspace, so
+ * the tools the script reaches for run against this repository, through whatever `hooks`
+ * puts at the seam.
  */
 export const asked = (
   script: Script,
-  questions: ReadonlyArray<string>,
+  requests: ReadonlyArray<string>,
   hooks?: Hooks,
-): Effect.Effect<Array<Activity>> => conversed(script, questions, services(process.cwd(), hooks))
+): Effect.Effect<Array<Activity>, InstructionsUnreadable> =>
+  sessioned(scriptedModel(script), requests, services(process.cwd(), hooks))

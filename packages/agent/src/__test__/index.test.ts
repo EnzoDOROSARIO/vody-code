@@ -5,6 +5,7 @@ import type { Response } from 'effect/unstable/ai'
 import { asked } from './testing.ts'
 
 import type { Activity } from '#activity.ts'
+import type { InstructionsUnreadable } from '#prompt.ts'
 import type { Script } from './testing.ts'
 
 const answered: Array<Response.StreamPartEncoded> = [
@@ -36,8 +37,9 @@ const bookkeeping: Script = () => [
   { type: 'text-end', id: 'text-1' },
 ]
 
-const asking = (...questions: ReadonlyArray<string>): Effect.Effect<Array<Activity>> =>
-  asked(answering, questions)
+const asking = (
+  ...requests: ReadonlyArray<string>
+): Effect.Effect<Array<Activity>, InstructionsUnreadable> => asked(answering, requests)
 
 it.live('the loop runs the tool the model asks for and reports what came back', () =>
   Effect.gen(function* () {
@@ -102,8 +104,8 @@ it.live('the loop stops on a turn with no tool call', () =>
   Effect.gen(function* () {
     const activities = yield* asking('say hi', 'and again')
 
-    // Only the first turn of the first question took a tool. Every turn after it
-    // answered in prose, and each of those ended the question that asked it: nothing
+    // Only the first turn of the first Request took a tool. Every turn after it
+    // answered in prose, and each of those ended the Turn it was asked in: nothing
     // follows the last fragment of the second answer.
     expect(activities.filter((activity) => activity.type === 'tool-call')).toHaveLength(1)
     expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'hi', type: 'reply' })
