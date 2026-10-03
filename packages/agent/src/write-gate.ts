@@ -26,7 +26,7 @@ import type { Facts } from './write-questions.ts'
 export const hooks: Effect.Effect<
   Hooks,
   never,
-  FileSystem.FileSystem | Judge | Path.Path | Perimeter
+  FileSystem.FileSystem | Judge | Path.Path | Perimeter | Workspace
 > = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path

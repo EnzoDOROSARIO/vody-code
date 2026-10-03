@@ -20,33 +20,35 @@ import type { Hook } from './tools/hooks.ts'
  * would take a shell parser (ADR 0001). Nothing is remembered either, so a command run
  * twice is judged twice.
  */
-export const hook: Effect.Effect<Hook<'bash'>, never, Judge | Perimeter> = Effect.gen(function* () {
-  const judge = yield* Judge
-  const perimeter = yield* Perimeter
+export const hook: Effect.Effect<Hook<'bash'>, never, Judge | Perimeter | Workspace> = Effect.gen(
+  function* () {
+    const judge = yield* Judge
+    const perimeter = yield* Perimeter
 
-  const workspace = yield* Workspace
+    const workspace = yield* Workspace
 
-  // Stryker disable next-line StringLiteral: the name only labels the span, which nothing
-  // in the package reads.
-  return Effect.fn('CommandGate.examine')(function* ({ params: { command } }) {
-    const request = yield* Request
+    // Stryker disable next-line StringLiteral: the name only labels the span, which nothing
+    // in the package reads.
+    return Effect.fn('CommandGate.examine')(function* ({ params: { command } }) {
+      const request = yield* Request
 
-    const answers = yield* judge.judge(definition, {
-      command,
-      workspace,
-      perimeter: Option.getOrNull(perimeter.root),
-      request: Option.getOrNull(request),
+      const answers = yield* judge.judge(definition, {
+        command,
+        workspace,
+        perimeter: Option.getOrNull(perimeter.root),
+        request: Option.getOrNull(request),
+      })
+
+      return yield* Verdict.$match(derive(policy, answers), {
+        Allowed: () => Effect.void,
+        Refused: ({ tripped }) =>
+          Effect.fail(
+            new ActRefused({
+              tripped,
+              reason: `bash will not run \`${command}\`: the Judge's answers refuse it (${explained(tripped)}). The refusal is final, so do not run the same command again: do the work another way, or tell the person what you meant to run and why`,
+            }),
+          ),
+      })
     })
-
-    return yield* Verdict.$match(derive(policy, answers), {
-      Allowed: () => Effect.void,
-      Refused: ({ tripped }) =>
-        Effect.fail(
-          new ActRefused({
-            tripped,
-            reason: `bash will not run \`${command}\`: the Judge's answers refuse it (${explained(tripped)}). The refusal is final, so do not run the same command again: do the work another way, or tell the person what you meant to run and why`,
-          }),
-        ),
-    })
-  })
-})
+  },
+)

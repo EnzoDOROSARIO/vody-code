@@ -7,6 +7,7 @@ import type { AiError, Tool, Toolkit } from 'effect/unstable/ai'
 import { toolkit } from '#tools/index.ts'
 import { services } from '#__test__/testing.ts'
 
+import type { Workspace } from '#workspace.ts'
 import type { Handlers, Hooks, Tools } from '#tools/index.ts'
 
 export type Outcome = Tool.Result<Tools[keyof Tools]>
@@ -48,7 +49,7 @@ export const outcome = <A, E>(
 // Run one tool against `mounted`, whatever that layer put at the seam, and answer with
 // the last result it streamed.
 export const run = <A, E>(
-  mounted: Layer.Layer<NodeServices.NodeServices | Handlers>,
+  mounted: Layer.Layer<NodeServices.NodeServices | Handlers | Workspace>,
   handle: Handle<A, E>,
 ): Effect.Effect<A, AiError.AiError | E> =>
   // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point

@@ -113,7 +113,7 @@ export const toolkit: Toolkit.Toolkit<{ readonly edit_file: typeof editFile }> =
 export const handlers: Effect.Effect<
   Toolkit.HandlersFrom<(typeof toolkit)['tools']>,
   never,
-  Files | FileSystem.FileSystem | Path.Path
+  Files | FileSystem.FileSystem | Path.Path | Workspace
 > = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path

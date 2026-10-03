@@ -142,7 +142,7 @@ export const toolkit: Toolkit.Toolkit<{ readonly bash: typeof bash }> = Toolkit.
 export const handlers: Effect.Effect<
   Toolkit.HandlersFrom<(typeof toolkit)['tools']>,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Workspace
 > = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const fs = yield* FileSystem.FileSystem

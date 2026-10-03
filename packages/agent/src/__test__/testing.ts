@@ -38,10 +38,10 @@ const mounted = (
   tools: Layer.Layer<
     Handlers,
     never,
-    ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+    ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
   >,
   workspace: string,
-): Layer.Layer<NodeServices.NodeServices | Handlers> =>
+): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> =>
   tools.pipe(
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(Layer.succeed(Workspace, workspace)),
@@ -55,7 +55,7 @@ const mounted = (
 export const judged = (
   workspace: string,
   judge: Layer.Layer<Judge>,
-): Layer.Layer<NodeServices.NodeServices | Handlers> =>
+): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> =>
   mounted(handlers.pipe(Layer.provide(judge)), workspace)
 
 // Hooks are read where the toolkit layer is built, so they go in under it. A test that
@@ -68,7 +68,7 @@ export const judged = (
 export const services = (
   workspace: string,
   hooks?: Hooks,
-): Layer.Layer<NodeServices.NodeServices | Handlers> =>
+): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> =>
   hooks === undefined
     ? judged(workspace, allowing)
     : mounted(toolkitLayer.pipe(Layer.provide(Layer.succeed(Hooks, hooks))), workspace)
@@ -76,8 +76,9 @@ export const services = (
 // The toolkit with nothing provided at the seam, so what the tools run through is the
 // reference's own default. The agent never builds this — `handlers` always puts the Gate
 // there — so the one test that shows what the empty seam does is the only way to it.
-export const unhooked = (workspace: string): Layer.Layer<NodeServices.NodeServices | Handlers> =>
-  mounted(toolkitLayer, workspace)
+export const unhooked = (
+  workspace: string,
+): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> => mounted(toolkitLayer, workspace)
 
 export const onDisk = <A>(effect: Effect.Effect<A, never, FileSystem.FileSystem>): Promise<A> =>
   // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
@@ -361,7 +362,7 @@ export const rehearsed = (
 export const sessioned = (
   model: Layer.Layer<LanguageModel.LanguageModel>,
   requests: ReadonlyArray<string>,
-  tools: Layer.Layer<NodeServices.NodeServices | Handlers>,
+  tools: Layer.Layer<NodeServices.NodeServices | Handlers | Workspace>,
 ): Effect.Effect<Array<Activity>, InstructionsUnreadable> => {
   const program = Effect.gen(function* () {
     const agent = yield* Session
