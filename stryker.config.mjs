@@ -12,13 +12,14 @@ export default {
   // The mutation run is a unit gate: it executes the tests of vitest.mutation.config.ts,
   // the ones that need no filesystem, no git, no child process, no network, and the
   // mutate set is what those tests reach — the TUI's sources, and the loop's own logic
-  // (the Turn's stream, the Activities, the Request, the Verdict a Gate derives), whose
-  // tests run it with the model scripted and the tools answering from cans. A mutant is
-  // paid for in memory-only work, so the run costs about half a minute. Code only the
-  // infra suites reach (the tools' own effects, the Gates over real disk, the session
-  // that reads the workspace's instructions) is not mutated here: its assurance is the
-  // suites that run it for real, and the way to put it under mutation is to make its
-  // tests unit first, which grows this set by the same stroke.
+  // (the Turn's stream, the Activities, the Request, the Passage the seam records, the
+  // Verdict a Gate derives), whose tests run it with the model scripted and the tools
+  // answering from cans. A mutant is paid for in memory-only work, so the run costs
+  // about half a minute. Code only the infra suites reach (the tools' own effects, the
+  // Gates over real disk, the session that reads the workspace's instructions) is not
+  // mutated here: its assurance is the suites that run it for real, and the way to put
+  // it under mutation is to make its tests unit first, which grows this set by the same
+  // stroke.
   mutate: [
     'packages/tui/src/**/*.ts',
     'packages/tui/src/**/*.tsx',
@@ -26,6 +27,7 @@ export default {
     'packages/agent/src/turn.ts',
     'packages/agent/src/activity.ts',
     'packages/agent/src/request.ts',
+    'packages/agent/src/tools/hooks.ts',
     'packages/agent/src/verdict.ts',
     'packages/agent/src/workspace.ts',
   ],

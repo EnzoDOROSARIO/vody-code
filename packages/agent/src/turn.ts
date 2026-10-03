@@ -4,6 +4,7 @@ import type { AiError, Chat, LanguageModel, Prompt, Response, Toolkit } from 'ef
 
 import { ToolCall } from './activity.ts'
 import { Request } from './request.ts'
+import { watched } from './tools/hooks.ts'
 
 import type { Activity, ToolResult } from './activity.ts'
 import type { Tools } from './tools/index.ts'
@@ -42,56 +43,41 @@ const reported = (part: Response.StreamPart<Tools, 'opaque'>): Stream.Stream<Act
  */
 const REFUSALS_BEFORE_AN_IMPASSE = 3
 
-// Which tools pass a Gate. Only a gated act that was allowed says the model has found a
-// way through, so only those clear the count; reading and searching always succeed, and
-// a model that reads between attempts, as one does when something is not working, would
-// otherwise clear it every time. The tool's name is the fact read here rather than a
-// signal out of the Gate, because the write Gate lets writes inside the Perimeter through
-// unjudged, and those are allowed acts too: whether the Judge was asked does not matter,
-// only that the tool is one a Gate stands in front of. The record names every tool, so a
-// new one is a compile error until someone says which side of this line it is on.
-const GATED = {
-  bash: true,
-  edit_file: true,
-  glob: false,
-  read_file: false,
-  write_file: true,
-} satisfies { readonly [Name in ToolResult['name']]: boolean }
-
 // A refusal is either failure a Gate returns: an act the Judge judged and was refused, or
 // one refused because the Judge did not answer. Both mean the act did not happen for
 // reasons the model cannot argue with, so both count. Read by tag, on any tool, so a tool
-// that gains a Gate is counted without being named here.
+// that gains a Gate is counted without being named here. Which tools a Gate stands in
+// front of is not read here at all: the seam records every gated act that got through,
+// and that record is the whole of what "allowed" means. Only a gated act that was allowed
+// says the model has found a way through, so only those clear the count; reading and
+// searching are never recorded, and a model that reads between attempts, as one does when
+// something is not working, does not clear it every time.
 const refused = (result: ToolResult): boolean =>
   result.isFailure &&
   (Predicate.isTagged(result.result, 'ActRefused') ||
     Predicate.isTagged(result.result, 'JudgeDidNotAnswer'))
 
-/** What one call of the model met at the Gates, across every tool it reached for. */
+/** What one call of the model met at the Gates: the refusals it was given to work around.
+ * Whether a gated act got through is not part of this — the seam recorded it, and the
+ * loop reads that separately. */
 type Step = {
-  readonly allowed: boolean
   readonly refused: number
 }
 
-const UNTOUCHED: Step = { allowed: false, refused: 0 }
+const UNTOUCHED: Step = { refused: 0 }
 
 // Any other failure, a file not found or an edit that matched nothing, is the model's to
 // fix and says nothing about the Gate either way.
-const met = (step: Step, result: ToolResult): Step => {
-  if (refused(result)) {
-    return { ...step, refused: step.refused + 1 }
-  }
-
-  return !result.isFailure && GATED[result.name] ? { ...step, allowed: true } : step
-}
+const met = (step: Step, result: ToolResult): Step =>
+  refused(result) ? { ...step, refused: step.refused + 1 } : step
 
 // The count after one call of the model. The tools a call reached for run concurrently,
 // so their results arrive in whatever order they finish, and a model that asked for them
 // all at once saw none of them before asking: inside one call nothing comes between
 // anything else. So the rule reads the call as a whole. Its refusals add up, and only a
-// call that got a gated act through and was refused nothing clears the count.
-const tallied = (refusals: number, step: Step): number =>
-  step.allowed && step.refused === 0 ? 0 : refusals + step.refused
+// call the seam recorded a passage for and that was refused nothing clears the count.
+const tallied = (refusals: number, step: Step, passed: boolean): number =>
+  passed && step.refused === 0 ? 0 : refusals + step.refused
 
 /** What one Turn's loop carries through every call of the model: the conversation it
  * continues, the handlers it reaches for, and the Turn's refusal count, made once in
@@ -117,15 +103,23 @@ const respond = (
       const calledTools = yield* Ref.make(false)
       const step = yield* Ref.make(UNTOUCHED)
 
-      const call = turn.chat.streamText({ prompt, toolkit: turn.tools }).pipe(
+      // One Passage per call of the model: what this call's Gates let through cannot
+      // clear the count of the call after it.
+      const watchedCall = yield* watched(turn.chat.streamText({ prompt, toolkit: turn.tools }))
+
+      const call = watchedCall.stream.pipe(
         Stream.tap((part) => {
           if (part.type === 'tool-call') {
             return Ref.set(calledTools, true)
           }
 
-          return part.type === 'tool-result'
-            ? Ref.update(step, (current) => met(current, part))
-            : Effect.void
+          // Stryker disable next-line ConditionalExpression: `met` changes nothing for a
+          // part that is not a tool result, so taken or not the branch is unobservable.
+          if (part.type === 'tool-result') {
+            return Ref.update(step, (current) => met(current, part))
+          }
+
+          return Effect.void
         }),
         Stream.flatMap(reported),
       )
@@ -139,7 +133,11 @@ const respond = (
         Effect.gen(function* () {
           const reached = yield* Ref.get(calledTools)
           const gated = yield* Ref.get(step)
-          const count = yield* Ref.updateAndGet(turn.refusals, (current) => tallied(current, gated))
+          const passed = yield* watchedCall.passed
+
+          const count = yield* Ref.updateAndGet(turn.refusals, (current) =>
+            tallied(current, gated, passed),
+          )
 
           if (!reached) {
             return Stream.empty

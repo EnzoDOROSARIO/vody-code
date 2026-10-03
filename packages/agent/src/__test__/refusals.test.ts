@@ -7,7 +7,8 @@ import { ActRefused, JudgeDidNotAnswer, TextNotFound } from '#tools/index.ts'
 
 import type { Script } from './testing.ts'
 import type { Activity } from '#activity.ts'
-import type { Hooks } from '#tools/index.ts'
+import type { Call, Hook, Hooks, Tools } from '#tools/index.ts'
+import type { Handler } from '#tools/hooks.ts'
 
 // What a Gate's answer looks like at the seam the loop reads: a failure the tool has
 // declared, which the counting reads by tag and nothing else about it matters. A test
@@ -23,14 +24,29 @@ const unanswered = new JudgeDidNotAnswer({
   reason: 'the play of a Judge that answered nothing',
 })
 
-// The whole write Gate's answer, played in: the writes outside the working tree are
-// refused, and the ones inside go without asking, as the real one lets a write inside
-// the Perimeter pass unjudged. The command Gate takes no part in any of these tests
-// unless one of them says it does.
-const writesOutsideRefused: Hooks = {
-  write_file: ({ params }) =>
-    params.path.startsWith('../outside') ? Effect.fail(refusal) : Effect.void,
-}
+/** A whole seam, played: a hook for every tool a Gate stands in front of, and `undefined`
+ * for the tools none does — the shape `gates.ts` builds, so a new tool is a compile error
+ * here until the play says which side of the line it is on. */
+type Play = { readonly [Name in keyof Tools]: Hook<Name> | undefined }
+
+// The write Gate's rule, played in for both tools it stands in front of: the writes
+// outside the working tree are refused, and the ones inside go without asking, as the
+// real one lets a write inside the Perimeter pass unjudged.
+const outsideRefused = ({
+  params,
+}: Call<'edit_file' | 'write_file'>): Effect.Effect<void, ActRefused> =>
+  params.path.startsWith('../outside') ? Effect.fail(refusal) : Effect.void
+
+// The seam the following tests play with: both tools of the write Gate behind its own
+// rule, and the command Gate letting every command through. A tool with no hook here —
+// read_file, glob — is not gated, which is the seam's to say and no longer the loop's.
+const writesOutsideRefused = {
+  bash: () => Effect.void,
+  edit_file: outsideRefused,
+  glob: undefined,
+  read_file: undefined,
+  write_file: outsideRefused,
+} satisfies Play
 
 // The command Gate's answer on one question, played in full: a command the Judge reads
 // as irreversible is refused however it was asked for.
@@ -110,20 +126,22 @@ const repeated = (step: Step, times: number): ReadonlyArray<Step> =>
   Array.from({ length: times }, () => step)
 
 // An edit whose old text is simply not in the file: what a real edit_file says when
-// nothing matches, which is the tool's mistake and not any Gate's answer.
-const playedWithAnEditThatMisses: Hooks = {
-  ...writesOutsideRefused,
-  edit_file: ({ params }) =>
-    params.old_text === 'kept'
-      ? Effect.void
-      : Effect.fail(new TextNotFound({ path: params.path, reason: 'nothing matches it' })),
-}
+// nothing matches, which is the tool's mistake and not any Gate's answer. Played the
+// way it happens: the Gate in front of the edit passes, and the tool itself then fails.
+const missingEdit: Hooks = { ...writesOutsideRefused, edit_file: () => Effect.void }
+
+const noMatch: Handler<'edit_file'> = ({ old_text: sought, path: target }) =>
+  sought === 'kept'
+    ? Effect.succeed('the file is the way the edit left it')
+    : Effect.fail(new TextNotFound({ path: target, reason: 'nothing matches it' }))
 
 const talk = (
   steps: ReadonlyArray<Step>,
   hooks: Hooks = {},
   requests: ReadonlyArray<string> = ['tidy up'],
-): Effect.Effect<Array<Activity>> => rehearsed(scriptedModel(scripted(steps)), requests, hooks)
+  answers: Partial<{ readonly [Name in keyof Tools]: Handler<Name> }> = {},
+): Effect.Effect<Array<Activity>> =>
+  rehearsed(scriptedModel(scripted(steps)), requests, hooks, answers)
 
 const calls = (activities: ReadonlyArray<Activity>): number =>
   activities.filter((activity) => activity.type === 'tool-call').length
@@ -199,17 +217,36 @@ it.live('a successful read or search does not clear the count', () =>
   }),
 )
 
+// A passage belongs to one call of the model, not the Turn: the write that got through
+// in the first call must not clear the count three calls later, when the only act
+// between the refusals is a read.
+it.live('a passage clears one call of the model, not the whole Turn', () =>
+  Effect.gen(function* () {
+    const activities = yield* talk(
+      [writeInside, writeOutside, read, writeOutside, writeOutside],
+      writesOutsideRefused,
+    )
+
+    expect(calls(activities)).toBe(5)
+    expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
+  }),
+)
+
 // An edit that matched nothing is the model's mistake, not the Gate's answer: it neither
 // counts as a refusal nor, having done nothing, as an act allowed through.
 it.live('a gated tool that failed on its own neither counts nor clears', () =>
   Effect.gen(function* () {
     const twice = repeated(writeOutside, 2)
 
-    const counted = yield* talk([...twice, editMissing, writeInside], playedWithAnEditThatMisses)
+    const counted = yield* talk([...twice, editMissing, writeInside], missingEdit, ['tidy up'], {
+      edit_file: noMatch,
+    })
 
     const cleared = yield* talk(
       [...twice, editMissing, writeOutside, writeInside],
-      playedWithAnEditThatMisses,
+      missingEdit,
+      ['tidy up'],
+      { edit_file: noMatch },
     )
 
     expect(closed(counted)).toBe(false)
@@ -366,7 +403,9 @@ it.live('a gated call streamed in fragments is not an act allowed through', () =
 
     const activities = yield* talk(
       [...twice, streamedEditMissing, writeOutside, writeInside],
-      playedWithAnEditThatMisses,
+      missingEdit,
+      ['tidy up'],
+      { edit_file: noMatch },
     )
 
     expect(calls(activities)).toBe(4)
