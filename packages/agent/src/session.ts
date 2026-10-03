@@ -10,6 +10,7 @@ import { toolkit } from './tools/index.ts'
 
 import type { Handlers } from './tools/index.ts'
 import type { InstructionsUnreadable } from './prompt.ts'
+import type { Workspace } from './workspace.ts'
 
 /**
  * The one service the screen composes. It owns a Turn end to end: the conversation is
@@ -48,7 +49,7 @@ export class Session extends Context.Service<
   static readonly layer: Layer.Layer<
     Session,
     InstructionsUnreadable,
-    Handlers | LanguageModel.LanguageModel | FileSystem.FileSystem | Path.Path
+    Handlers | LanguageModel.LanguageModel | FileSystem.FileSystem | Path.Path | Workspace
   > = Layer.effect(
     Session,
     Effect.gen(function* () {

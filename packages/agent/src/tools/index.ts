@@ -14,6 +14,7 @@ import { toolkit } from './toolkit.ts'
 import * as WriteFile from './write-file.ts'
 
 import type { Tools } from './toolkit.ts'
+import type { Workspace } from '#workspace.ts'
 
 // Each tool owns the errors it raises. They are re-exported here so a caller still
 // finds the whole vocabulary in one import.
@@ -50,7 +51,7 @@ export type Handlers = Tool.HandlersFor<Tools>
 export const toolkitLayer: Layer.Layer<
   Handlers,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
 > = toolkit
   .toLayer(
     Effect.gen(function* () {

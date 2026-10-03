@@ -53,7 +53,7 @@ const read = (
 const projectInstructions: Effect.Effect<
   Option.Option<Instructions>,
   InstructionsUnreadable,
-  FileSystem.FileSystem | Path.Path
+  FileSystem.FileSystem | Path.Path | Workspace
 > = Effect.gen(function* () {
   const path = yield* Path.Path
 
@@ -95,7 +95,7 @@ const systemPrompt = (workspace: string, instructions: Option.Option<Instruction
 export const chat: Effect.Effect<
   Chat.Chat,
   InstructionsUnreadable,
-  FileSystem.FileSystem | Path.Path
+  FileSystem.FileSystem | Path.Path | Workspace
 > = Effect.gen(function* () {
   const workspace = yield* Workspace
 

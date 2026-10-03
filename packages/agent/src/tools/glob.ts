@@ -42,7 +42,7 @@ export const toolkit: Toolkit.Toolkit<{ readonly glob: typeof glob }> = Toolkit.
 export const handlers: Effect.Effect<
   Toolkit.HandlersFrom<(typeof toolkit)['tools']>,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
 > = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const fs = yield* FileSystem.FileSystem

@@ -31,7 +31,7 @@ import {
   workspace,
   write,
 } from './testing.ts'
-import { layer } from '#index.ts'
+import { layer, Workspace } from '#index.ts'
 import { BUDGET, Judge, JudgeCredentialsRequired } from '#judge.ts'
 import { ActRefused, JudgeDidNotAnswer } from '#tools/index.ts'
 import { outcome, run } from '#tools/__test__/harness.ts'
@@ -130,7 +130,10 @@ const signedIn = Effect.gen(function* () {
   return home
 })
 
-const agent = layer.pipe(Layer.provideMerge(NodeServices.layer))
+const agent = layer.pipe(
+  Layer.provideMerge(NodeServices.layer),
+  Layer.provide(Layer.succeed(Workspace, process.cwd())),
+)
 
 it.live('the agent does not start without the Judge’s key, even signed in to Codex', () =>
   Effect.gen(function* () {

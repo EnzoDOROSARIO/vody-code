@@ -15,6 +15,7 @@ import { toolkitLayer } from './tools/index.ts'
 import type { JudgeCredentialsRequired } from './judge.ts'
 import type { InstructionsUnreadable } from './prompt.ts'
 import type { Handlers } from './tools/index.ts'
+import type { Workspace } from './workspace.ts'
 
 export { Session } from './session.ts'
 
@@ -61,7 +62,7 @@ export type { Handlers, Tools } from './tools/index.ts'
 export const handlers: Layer.Layer<
   Handlers,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Judge | Path.Path
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Judge | Path.Path | Workspace
 > = toolkitLayer.pipe(Layer.provide(Gates.layer))
 
 /**
@@ -75,7 +76,7 @@ export const handlers: Layer.Layer<
 export const layer: Layer.Layer<
   Session,
   CodexAuthenticationRequired | InstructionsUnreadable | JudgeCredentialsRequired,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
 > = Session.layer.pipe(
   Layer.provide(handlers.pipe(Layer.provide(Judge.layer))),
   Layer.provide(Codex.layer.pipe(Layer.provide(CodexCredentials.fromAuthFile))),
