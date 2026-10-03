@@ -34,8 +34,10 @@ export default defineConfig({
       'packages/agent/src/__test__/refusals.test.ts',
       'packages/agent/src/__test__/request.test.ts',
       'packages/agent/src/__test__/verdict.test.ts',
-      // Pure seam-work beside the tools: their descriptions, in memory.
+      // Pure seam-work beside the tools: their descriptions, and the Passage the seam
+      // records, in memory.
       'packages/agent/src/tools/__test__/descriptions.test.ts',
+      'packages/agent/src/tools/__test__/passage.test.ts',
       'packages/agent/src/__test__/workspace.test.ts',
     ],
     exclude: ['**/node_modules/**', '**/repos/**', '**/dist/**'],

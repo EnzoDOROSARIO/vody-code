@@ -8,6 +8,8 @@ import { Hooks } from './tools/hooks.ts'
 import * as WriteGate from './write-gate.ts'
 
 import type { Judge } from './judge.ts'
+import type { Hook } from './tools/hooks.ts'
+import type { Tools } from './tools/toolkit.ts'
 import type { Workspace } from './workspace.ts'
 
 /**
@@ -28,6 +30,15 @@ export const layer: Layer.Layer<
 
     const bash = yield* CommandGate.hook
 
-    return { ...writes, bash }
+    // The record names every tool, so a new one is a compile error until someone says
+    // which side of the line it is on: a hook, or undefined for a tool no Gate stands in
+    // front of. That is the decision `turn.ts` no longer has to be told about.
+    return {
+      bash,
+      edit_file: writes.edit_file,
+      glob: undefined,
+      read_file: undefined,
+      write_file: writes.write_file,
+    } satisfies { readonly [Name in keyof Tools]: Hook<Name> | undefined }
   }),
 ).pipe(Layer.provide(Perimeter.layer))
