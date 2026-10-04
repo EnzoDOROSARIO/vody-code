@@ -5,7 +5,7 @@ import { useReducer, useState } from 'react'
 import { casesHandled } from './defects.ts'
 import { Markdown } from './markdown/index.tsx'
 
-import type { Activity, Breakdown, Impasse, ToolCall, ToolFailure, ToolResult } from 'agent'
+import type { Activity, Breakdown, Impasse, Step, ToolCall, ToolFailure, ToolResult } from 'agent'
 import type { Key } from 'ink'
 import type { ReactElement } from 'react'
 
@@ -33,6 +33,21 @@ export type Line = {
 
 const PREVIEW_CHARACTERS = 200
 
+// How a Step reads at a glance in the Plan block: its status, as one mark.
+const marks = {
+  completed: '[x]',
+  in_progress: '[>]',
+  pending: '[ ]',
+} satisfies { readonly [Status in Step['status']]: string }
+
+// A Plan write is the Plan itself, so it is announced as its Steps, one per line, each
+// behind the mark its status earns. A write with no Steps is the Plan being cleared,
+// which would otherwise be invisible.
+const plan = (steps: ReadonlyArray<Step>): string =>
+  steps.length === 0
+    ? 'The Plan was cleared'
+    : steps.map((step) => `${marks[step.status]} ${step.text}`).join('\n')
+
 // The agent reports that it called `bash` with a command; saying that back as a
 // shell prompt is this screen's business, and every tool gets the phrasing that
 // suits it. Adding a tool to the agent lands here as a missing branch.
@@ -48,6 +63,8 @@ const asked = (call: ToolCall): string => {
       return `read ${call.params.path}`
     case 'write_file':
       return `write ${call.params.path}`
+    case 'write_plan':
+      return plan(call.params.steps)
     default:
       return casesHandled(call)
   }

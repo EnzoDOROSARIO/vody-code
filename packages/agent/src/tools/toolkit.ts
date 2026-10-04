@@ -7,6 +7,7 @@ import * as EditFile from './edit-file.ts'
 import * as Glob from './glob.ts'
 import * as ReadFile from './read-file.ts'
 import * as WriteFile from './write-file.ts'
+import * as WritePlan from './write-plan.ts'
 
 export const toolkit = Toolkit.merge(
   Bash.toolkit,
@@ -14,6 +15,7 @@ export const toolkit = Toolkit.merge(
   Glob.toolkit,
   ReadFile.toolkit,
   WriteFile.toolkit,
+  WritePlan.toolkit,
 )
 
 export type Tools = (typeof toolkit)['tools']

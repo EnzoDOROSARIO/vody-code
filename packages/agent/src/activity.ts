@@ -36,6 +36,7 @@ export const ToolCall = Schema.Union([
   callTo('glob', toolkit.tools.glob.parametersSchema),
   callTo('read_file', toolkit.tools.read_file.parametersSchema),
   callTo('write_file', toolkit.tools.write_file.parametersSchema),
+  callTo('write_plan', toolkit.tools.write_plan.parametersSchema),
 ])
 
 /** A tool the model reached for, with its arguments parsed back into the tool's own types. */

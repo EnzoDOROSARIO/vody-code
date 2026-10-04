@@ -46,6 +46,7 @@ const writesOutsideRefused = {
   glob: undefined,
   read_file: undefined,
   write_file: outsideRefused,
+  write_plan: undefined,
 } satisfies Play
 
 // The command Gate's answer on one question, played in full: a command the Judge reads
