@@ -23,10 +23,11 @@ export default defineConfig({
     include: [
       // The screen and its markdown, rendered with Ink's renderToString: no terminal,
       // no timers, nothing written anywhere. The frame is pure, so its rules are read
-      // without one at all.
+      // without one at all, and so are the raw mouse reports the shell reads back.
       'packages/tui/src/__test__/app.test.tsx',
       'packages/tui/src/__test__/defects.test.ts',
       'packages/tui/src/__test__/frame.test.ts',
+      'packages/tui/src/__test__/mouse.test.ts',
       'packages/tui/src/markdown/__test__/markdown.test.tsx',
       // The loop's own behaviour: the model scripted at the top seam and the tools
       // answering from cans behind the seam's hooks, so no file is touched, no git is
