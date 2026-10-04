@@ -1,8 +1,7 @@
-import { Context, Effect, FileSystem, Layer, Option, Path, Predicate, Schema } from 'effect'
+import { Context, Effect, FileSystem, Layer, Option, Path, Schema } from 'effect'
 import { Yaml } from 'effect/encoding'
 
-import type { PlatformError } from 'effect'
-
+import { absent } from './absent.ts'
 import { Home } from './home.ts'
 import { Workspace } from './workspace.ts'
 
@@ -48,6 +47,14 @@ export type Skill = {
   readonly body: string
 }
 
+/**
+ * The one order the Catalog's names are put in: the prompt lists the Skills by it, and a
+ * load that misses lists the names it could have used by it, so the same Catalog always
+ * reads the same.
+ */
+export const byName = (left: string, right: string): number =>
+  left < right ? -1 : left > right ? 1 : 0
+
 /** The frontmatter a SKILL.md opens with, and the body below it. */
 type Frontmatter = {
   readonly frontmatter: string
@@ -56,15 +63,14 @@ type Frontmatter = {
 
 // Decoded one key at a time, so the failure says which key was wrong: a missing name and
 // a missing description are different edits. Each decode ignores the keys it does not
-// name, which is how a frontmatter written for another agent keeps its extra keys.
-const Name = Schema.Struct({ name: Schema.String })
+// name, which is how a frontmatter written for another agent keeps its extra keys. The
+// non-empty checks are the schemas' own, so an empty string fails the decode rather than
+// being caught after it.
+const Name = Schema.Struct({ name: Schema.NonEmptyString })
 
-const Description = Schema.Struct({ description: Schema.String })
+const Description = Schema.Struct({ description: Schema.Trim.check(Schema.isNonEmpty()) })
 
 const Disable = Schema.Struct({ 'disable-model-invocation': Schema.optional(Schema.Boolean) })
-
-const absent = (error: PlatformError.PlatformError): boolean =>
-  Predicate.isTagged(error.reason, 'NotFound')
 
 const broken = (path: string, reason: string): SkillUnreadable =>
   new SkillUnreadable({ path, reason })
@@ -106,15 +112,23 @@ const read = (
 
 // An entry that is not a directory — a stray file, or a link to one — is passed over: a
 // Skill is a folder, and only a folder can have a SKILL.md at its top. A link to a
-// folder is one, because `stat` follows it. A dangling link has no Skill behind it and
-// is passed over with the rest.
+// folder is one, because `stat` follows it. A link to nothing is not passed over: it
+// names a Skill its author thought was there, so it stops the session the way a broken
+// SKILL.md does. An entry that vanished between the listing and the stat is passed over
+// with the rest, since there is nothing left to be wrong.
 const isDirectory = (
   folder: string,
-): Effect.Effect<boolean, PlatformError.PlatformError, FileSystem.FileSystem> =>
+): Effect.Effect<boolean, SkillUnreadable, FileSystem.FileSystem> =>
   Effect.flatMap(FileSystem.FileSystem, (fs) =>
     fs.stat(folder).pipe(
       Effect.map((info) => info.type === 'Directory'),
-      Effect.catchIf(absent, () => Effect.succeed(false)),
+      Effect.catchIf(absent, () =>
+        Effect.matchEffect(fs.readLink(folder), {
+          onFailure: () => Effect.succeed(false),
+          onSuccess: () => Effect.fail(broken(folder, 'the link points at nothing')),
+        }),
+      ),
+      Effect.catchTag('PlatformError', (error) => Effect.fail(broken(folder, error.message))),
     ),
   )
 
@@ -145,18 +159,10 @@ const validated = (
       Effect.mapError(() => broken(file, 'the name is missing or empty')),
     )
 
-    if (name === '') {
-      return yield* broken(file, 'the name is missing or empty')
-    }
-
     const description = yield* Schema.decodeUnknownEffect(Description)(parsed).pipe(
-      Effect.map((decoded) => decoded.description.trim()),
+      Effect.map((decoded) => decoded.description),
       Effect.mapError(() => broken(file, 'the description is missing or empty')),
     )
-
-    if (description === '') {
-      return yield* broken(file, 'the description is missing or empty')
-    }
 
     const disabled = yield* Schema.decodeUnknownEffect(Disable)(parsed).pipe(
       Effect.map(({ 'disable-model-invocation': flag }) => flag === true),
@@ -181,7 +187,7 @@ const candidate = (
   entry: string,
 ): Effect.Effect<
   Option.Option<readonly [string, Option.Option<Skill>]>,
-  SkillUnreadable | PlatformError.PlatformError,
+  SkillUnreadable,
   FileSystem.FileSystem | Path.Path
 > =>
   Effect.gen(function* () {
@@ -212,17 +218,19 @@ const readSkills = (
   directory: string,
 ): Effect.Effect<
   ReadonlyMap<string, Option.Option<Skill>>,
-  SkillUnreadable | PlatformError.PlatformError,
+  SkillUnreadable,
   FileSystem.FileSystem | Path.Path
 > =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
 
     // No skills folder is a place that keeps no Skills, not a failure. Any other failure
-    // to look inside one stops the session before the screen exists.
-    const entries = yield* fs
-      .readDirectory(directory)
-      .pipe(Effect.catchIf(absent, () => Effect.succeed([])))
+    // to look inside one stops the session before the screen exists, translated here so
+    // the terminal hears about the skills directory rather than the platform's own error.
+    const entries = yield* fs.readDirectory(directory).pipe(
+      Effect.catchIf(absent, () => Effect.succeed([])),
+      Effect.mapError((error) => broken(directory, error.message)),
+    )
 
     const found = yield* Effect.forEach(entries, (entry) => candidate(directory, entry))
 
@@ -245,7 +253,7 @@ export class Catalog extends Context.Service<Catalog, ReadonlyMap<string, Skill>
 ) {
   static readonly layer: Layer.Layer<
     Catalog,
-    SkillUnreadable | PlatformError.PlatformError,
+    SkillUnreadable,
     FileSystem.FileSystem | Home | Path.Path | Workspace
   > = Layer.effect(
     Catalog,

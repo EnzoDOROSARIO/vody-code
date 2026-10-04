@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { Effect, FileSystem, Option } from 'effect'
 
-import { homeFrom, onDisk, removeWorkspaces, temporary, write } from './testing.ts'
+import { homeFrom, onDisk, removeWorkspaces, symlink, temporary, write } from './testing.ts'
 
 afterEach(removeWorkspaces)
 
@@ -17,15 +17,7 @@ it.live('a home that resolves is the directory it really is', () =>
 
     const link = `${base}/link`
 
-    yield* Effect.promise(() =>
-      onDisk(
-        Effect.gen(function* () {
-          const fs = yield* FileSystem.FileSystem
-
-          yield* fs.symlink(home, link).pipe(Effect.orDie)
-        }),
-      ),
-    )
+    yield* Effect.promise(() => symlink(home, link))
 
     const real = yield* Effect.promise(() =>
       onDisk(

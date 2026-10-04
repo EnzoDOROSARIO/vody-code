@@ -4,6 +4,9 @@ import type { Response } from 'effect/ai'
 
 import { rehearsed, scriptedModel } from './testing.ts'
 
+import { Catalog } from '#catalog.ts'
+import * as LoadSkill from '#tools/load-skill.ts'
+
 import type { SkillNotFound } from '#tools/index.ts'
 import type { Skill } from '#catalog.ts'
 import type { Activity } from '#activity.ts'
@@ -192,5 +195,22 @@ it.live('the same Skill loads twice, both times in full', () =>
           '<skill name="tdd" path="/skills/tdd">\nWrite the test first.\nThen the code.\n</skill>',
       },
     ])
+  }),
+)
+
+// The handlers are built from the Catalog once, where the toolkit layer is built: this is
+// that read, in memory, so the unit run reaches the wiring a load depends on and a
+// handler that did not close over the Catalog cannot pass.
+it.live('the handlers are built from the in-memory Catalog and serve it', () =>
+  Effect.gen(function* () {
+    const handlers = yield* LoadSkill.handlers.pipe(
+      Effect.provideService(Catalog, catalog(['tdd', TDD])),
+    )
+
+    const result = yield* handlers.load_skill({ name: 'tdd' }, { preliminary: () => Effect.void })
+
+    expect(result).toBe(
+      '<skill name="tdd" path="/skills/tdd">\nWrite the test first.\nThen the code.\n</skill>',
+    )
   }),
 )

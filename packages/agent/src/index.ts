@@ -1,6 +1,6 @@
 import { Layer } from 'effect'
 
-import type { FileSystem, Path, PlatformError } from 'effect'
+import type { FileSystem, Path } from 'effect'
 import { FetchHttpClient } from 'effect/http'
 import type { ChildProcessSpawner } from 'effect/process'
 
@@ -40,8 +40,6 @@ export {
 export { InstructionsUnreadable } from './prompt.ts'
 
 export { SkillUnreadable } from './catalog.ts'
-
-export { Home } from './home.ts'
 
 export { Workspace } from './workspace.ts'
 
@@ -99,11 +97,7 @@ export const handlers: Layer.Layer<
  */
 export const layer: Layer.Layer<
   Session,
-  | CodexAuthenticationRequired
-  | InstructionsUnreadable
-  | JudgeCredentialsRequired
-  | PlatformError.PlatformError
-  | SkillUnreadable,
+  CodexAuthenticationRequired | InstructionsUnreadable | JudgeCredentialsRequired | SkillUnreadable,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
 > = Session.layer.pipe(
   Layer.provide(handlers.pipe(Layer.provide(Judge.layer))),

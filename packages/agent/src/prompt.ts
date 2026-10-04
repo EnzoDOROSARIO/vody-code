@@ -1,12 +1,12 @@
-import { Effect, FileSystem, Option, Path, Predicate, Schema } from 'effect'
+import { Effect, FileSystem, Option, Path, Schema } from 'effect'
 
-import type { PlatformError } from 'effect'
 import { Chat, Prompt } from 'effect/ai'
 
-import { Catalog } from './catalog.ts'
+import { absent } from './absent.ts'
+import { Catalog, byName } from './catalog.ts'
 import { Workspace } from './workspace.ts'
 
-import type { Skill, SkillUnreadable } from './catalog.ts'
+import type { Skill } from './catalog.ts'
 
 // Best first. A workspace carrying both has renamed its instructions and kept the old
 // name for another agent, so the two say the same thing — and a `CLAUDE.md` symlinked
@@ -33,9 +33,6 @@ export type Instructions = {
   readonly path: string
   readonly text: string
 }
-
-const absent = (error: PlatformError.PlatformError): boolean =>
-  Predicate.isTagged(error.reason, 'NotFound')
 
 // Read rather than ask and then read: one syscall, no gap between the two for the file
 // to change in, and a directory named `AGENTS.md` arrives as the failure it is.
@@ -90,19 +87,19 @@ const quoted = ({ path, text }: Instructions): string =>
   `<project_instructions path="${path}">\n${text}\n</project_instructions>`
 
 // The Catalog is told to the model under a tag of its own, after the standing
-// instructions and the workspace's own words: one line per Skill, the name it is loaded
-// by and what it is for, in a stable order so the same Skills give the same prompt. The
-// section also says how to load one — `load_skill` by name, before the work it covers —
-// and that the folder a load names is where the Skill's other files are read from.
+// instructions and the workspace's own words: what a Skill is, how to load one and
+// where its other files are read from, then one line per Skill — the name it is loaded
+// by and what it is for, in a stable order so the same Skills give the same prompt.
 const skills = (catalog: ReadonlyMap<string, Skill>): string =>
   [
     '<skills>',
-    'A Skill is a folder of instructions for one kind of work, named and described by the SKILL.md at its top. These are the Skills available to you:',
+    'A Skill is a folder of instructions for one kind of work, named and described by the SKILL.md at its top.',
+    "Before you start the work a Skill covers, load it with load_skill, passing its name. The load returns the Skill's instructions and the absolute path of its folder; when those instructions send you to another file in the folder, read it with read_file.",
+    'These are the Skills available to you:',
     [...catalog.entries()]
-      .toSorted(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .toSorted(([left], [right]) => byName(left, right))
       .map(([name, { description }]) => `- ${name}: ${description}`)
       .join('\n'),
-    "Before you start the work a Skill covers, load it with load_skill, passing the name above. The load returns the Skill's instructions and the absolute path of its folder; when those instructions send you to another file in the folder, read it with read_file.",
     '</skills>',
   ].join('\n')
 
@@ -127,7 +124,7 @@ const systemPrompt = (
 
 export const chat: Effect.Effect<
   Chat.Chat,
-  InstructionsUnreadable | SkillUnreadable | PlatformError.PlatformError,
+  InstructionsUnreadable,
   Catalog | FileSystem.FileSystem | Path.Path | Workspace
 > = Effect.gen(function* () {
   const workspace = yield* Workspace

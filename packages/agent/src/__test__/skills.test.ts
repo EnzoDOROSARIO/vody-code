@@ -1,8 +1,7 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { NodeServices } from '@effect/platform-node'
-import { Effect, Layer, Option, Predicate, Ref, Schema } from 'effect'
+import { Effect, Layer, Option, Ref, Schema } from 'effect'
 
-import type { PlatformError } from 'effect'
 import type { Chat } from 'effect/ai'
 
 import { Catalog, SkillUnreadable } from '#catalog.ts'
@@ -27,13 +26,15 @@ const standing = (workspace: string): string =>
   ].join('\n')
 
 // The Skills section, pinned in full apart from the list it carries: what a Skill is,
-// what the Catalog holds, and how to load one before the work it covers.
+// how to load one before the work it covers and where its other files are read from, and
+// what the Catalog holds.
 const section = (skills: ReadonlyArray<readonly [string, string]>): string =>
   [
     '<skills>',
-    'A Skill is a folder of instructions for one kind of work, named and described by the SKILL.md at its top. These are the Skills available to you:',
+    'A Skill is a folder of instructions for one kind of work, named and described by the SKILL.md at its top.',
+    "Before you start the work a Skill covers, load it with load_skill, passing its name. The load returns the Skill's instructions and the absolute path of its folder; when those instructions send you to another file in the folder, read it with read_file.",
+    'These are the Skills available to you:',
     ...skills.map(([name, description]) => `- ${name}: ${description}`),
-    "Before you start the work a Skill covers, load it with load_skill, passing the name above. The load returns the Skill's instructions and the absolute path of its folder; when those instructions send you to another file in the folder, read it with read_file.",
     '</skills>',
   ].join('\n')
 
@@ -44,10 +45,7 @@ const section = (skills: ReadonlyArray<readonly [string, string]>): string =>
 const reading = (
   workspace: string,
   home: Option.Option<string> = Option.none(),
-): Layer.Layer<
-  NodeServices.NodeServices | Catalog | Workspace,
-  SkillUnreadable | PlatformError.PlatformError
-> =>
+): Layer.Layer<NodeServices.NodeServices | Catalog | Workspace, SkillUnreadable> =>
   Catalog.layer.pipe(
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(Layer.succeed(Workspace, workspace)),
@@ -58,7 +56,7 @@ const reading = (
 const instructions = (
   workspace: string,
   home: Option.Option<string> = Option.none(),
-): Effect.Effect<string, StartupRefusal> =>
+): Effect.Effect<string, InstructionsUnreadable | SkillUnreadable> =>
   Effect.flatMap(chat, (conversation) => Ref.get(conversation.history)).pipe(
     Effect.flatMap((history) => {
       const [system] = history.content
@@ -75,12 +73,10 @@ const instructions = (
     Effect.provide(reading(workspace, home)),
   )
 
-type StartupRefusal = InstructionsUnreadable | SkillUnreadable | PlatformError.PlatformError
-
 const refusal = (
   workspace: string,
   home: Option.Option<string> = Option.none(),
-): Effect.Effect<StartupRefusal, Chat.Chat> =>
+): Effect.Effect<InstructionsUnreadable | SkillUnreadable, Chat.Chat> =>
   // The Catalog is built before the conversation is, so a refusal it raises arrives as
   // the build's failure: the flip has to sit outside the provide, where that failure
   // lands in the effect's error channel.
@@ -404,6 +400,74 @@ it.live('a Skill folder that is a symbolic link is followed', () =>
   }),
 )
 
+// A link whose target is gone names a Skill that is not there, and is refused rather
+// than passed over: silence would leave its author thinking the Skill was loaded.
+it.live('a link to nothing in the skills directory stops the session, naming the link', () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+
+    yield* Effect.promise(() =>
+      symlink(`${workspace}/.agents/skills/gone`, `${workspace}/.agents/skills/dangling`),
+    )
+
+    const stopped = yield* broken(workspace)
+
+    expect(stopped.path).toBe(`${workspace}/.agents/skills/dangling`)
+    expect(stopped.reason).toBe('the link points at nothing')
+  }),
+)
+
+// What a real load hands back: the body below the frontmatter, under the absolute path
+// of the folder holding the SKILL.md. The unit tests pin `load_skill`'s serving; this is
+// the reading that fills what it serves, so a split or path regression cannot pass them.
+it.live('the real Catalog holds the body below the frontmatter, under its folder', () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+
+    yield* Effect.promise(() =>
+      skill(
+        workspace,
+        'alpha',
+        'name: alpha\ndescription: Does alpha work',
+        'Write the test first.\nThen the code.',
+      ),
+    )
+
+    const catalog = yield* Catalog.pipe(
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+      Effect.provide(reading(workspace)),
+    )
+
+    expect(catalog.get('alpha')).toEqual({
+      body: 'Write the test first.\nThen the code.',
+      description: 'Does alpha work',
+      path: `${workspace}/.agents/skills/alpha`,
+    })
+  }),
+)
+
+// The fences are read with either line ending, so a SKILL.md written on Windows is the
+// same Skill: the body is what sits below the closing fence, whatever ended the lines.
+it.live('a SKILL.md with CRLF fences reads the same', () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+
+    yield* Effect.promise(() =>
+      write(
+        `${workspace}/.agents/skills/windows/SKILL.md`,
+        '---\r\nname: windows\r\ndescription: Does windows work\r\n---\r\nDo the work.',
+      ),
+    )
+
+    const catalog = yield* Catalog.pipe(
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+      Effect.provide(reading(workspace)),
+    )
+
+    expect(catalog.get('windows')?.body).toBe('Do the work.')
+  }),
+)
+
 it.live('a quoted description is read as its text', () =>
   Effect.gen(function* () {
     const workspace = yield* Effect.promise(() => onDisk(temporary))
@@ -511,6 +575,7 @@ it.live('a Skill with no name stops the session', () =>
 
     const stopped = yield* broken(workspace)
 
+    expect(stopped.path).toBe(`${workspace}/.agents/skills/broken/SKILL.md`)
     expect(stopped.reason).toBe('the name is missing or empty')
   }),
 )
@@ -523,6 +588,7 @@ it.live('a Skill with an empty description stops the session', () =>
 
     const stopped = yield* broken(workspace)
 
+    expect(stopped.path).toBe(`${workspace}/.agents/skills/broken/SKILL.md`)
     expect(stopped.reason).toBe('the description is missing or empty')
   }),
 )
@@ -537,6 +603,7 @@ it.live('a Skill whose name does not match its folder stops the session', () =>
 
     const stopped = yield* broken(workspace)
 
+    expect(stopped.path).toBe(`${workspace}/.agents/skills/broken/SKILL.md`)
     expect(stopped.reason).toBe('the name "elsewhere" does not match the folder "broken"')
   }),
 )
@@ -555,6 +622,7 @@ it.live('a Skill whose disable flag is not a boolean stops the session', () =>
 
     const stopped = yield* broken(workspace)
 
+    expect(stopped.path).toBe(`${workspace}/.agents/skills/broken/SKILL.md`)
     expect(stopped.reason).toBe('disable-model-invocation is not a boolean')
   }),
 )
@@ -574,6 +642,7 @@ it.live('a broken Skill is refused even when the agent would not have been shown
 
     const stopped = yield* broken(workspace)
 
+    expect(stopped.path).toBe(`${workspace}/.agents/skills/broken/SKILL.md`)
     expect(stopped.reason).toBe('the description is missing or empty')
   }),
 )
@@ -607,16 +676,18 @@ it.live('the refusal answers to the tag its type promises', () =>
   }),
 )
 
-// Nothing there is a Skill yet: a skills path that cannot be looked into is the
-// platform's own failure, and it stops the session before the screen exists.
+// Nothing there is a Skill yet: a skills path that cannot be looked into is refused as
+// a broken Catalog, and it stops the session before the screen exists.
 it.live('a skills path that cannot be read stops the session', () =>
   Effect.gen(function* () {
     const workspace = yield* Effect.promise(() => onDisk(temporary))
 
     yield* Effect.promise(() => write(`${workspace}/.agents/skills`, 'not a directory'))
 
-    const stopped = yield* refusal(workspace)
+    const stopped = yield* broken(workspace)
 
-    expect(Predicate.isTagged(stopped, 'PlatformError')).toBe(true)
+    expect(stopped.path).toBe(`${workspace}/.agents/skills`)
+    // What the file system said, not a sentence of this module's own.
+    expect(stopped.reason).toContain('FileSystem.readDirectory')
   }),
 )

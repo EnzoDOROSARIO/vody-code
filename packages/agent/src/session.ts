@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Stream } from 'effect'
 
-import type { FileSystem, Path, PlatformError } from 'effect'
+import type { FileSystem, Path } from 'effect'
 import type { LanguageModel } from 'effect/ai'
 
 import type { Activity } from './activity.ts'
@@ -8,7 +8,7 @@ import { chat } from './prompt.ts'
 import { answer } from './turn.ts'
 import { toolkit } from './tools/index.ts'
 
-import type { Catalog, SkillUnreadable } from './catalog.ts'
+import type { Catalog } from './catalog.ts'
 import type { Handlers } from './tools/index.ts'
 import type { InstructionsUnreadable } from './prompt.ts'
 import type { Workspace } from './workspace.ts'
@@ -50,7 +50,7 @@ export class Session extends Context.Service<
    */
   static readonly layer: Layer.Layer<
     Session,
-    InstructionsUnreadable | SkillUnreadable | PlatformError.PlatformError,
+    InstructionsUnreadable,
     Catalog | Handlers | LanguageModel.LanguageModel | FileSystem.FileSystem | Path.Path | Workspace
   > = Layer.effect(
     Session,
@@ -61,9 +61,10 @@ export class Session extends Context.Service<
 
       // A Turn runs to a promise outside any fiber of this runtime, so the services it
       // needs go with it: captured here, where the session is built, and provided again
-      // around every ask. The Catalog travels with them because `load_skill` reads it
-      // through the toolkit: the same copy this layer's conversation was given.
-      const services = yield* Effect.context<Catalog | Handlers | LanguageModel.LanguageModel>()
+      // around every ask. The Catalog does not travel with them: `load_skill` serves the
+      // copy captured when the gated handlers were built, which is the same copy this
+      // layer's conversation was given.
+      const services = yield* Effect.context<Handlers | LanguageModel.LanguageModel>()
 
       const ask = (request: string, show: (activity: Activity) => void): Effect.Effect<void> =>
         Stream.runForEach(answer(conversation, tools, request), (activity) =>

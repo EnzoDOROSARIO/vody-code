@@ -2,7 +2,7 @@ import { Effect, Schema } from 'effect'
 
 import { Tool, Toolkit } from 'effect/ai'
 
-import { Catalog } from '#catalog.ts'
+import { Catalog, byName } from '#catalog.ts'
 
 import type { Skill } from '#catalog.ts'
 import type { Handler } from './hooks.ts'
@@ -20,7 +20,7 @@ export class SkillNotFound extends Schema.TaggedError<SkillNotFound>()('SkillNot
 // used, and the names it could have used, sorted so the same Catalog gives the same
 // correction. An empty Catalog is said in its own words rather than as an empty list.
 const unknown = (name: string, catalog: ReadonlyMap<string, Skill>): string => {
-  const names = [...catalog.keys()].toSorted()
+  const names = [...catalog.keys()].toSorted(byName)
 
   return names.length === 0
     ? `There is no Skill named "${name}": the Catalog holds no Skills`
@@ -42,33 +42,37 @@ const loadSkill = Tool.make('load_skill', {
   // mode and nothing else, so no test can tell "return" from a mode that is not "error";
   // the rule refusals in load-skill.test.ts pin the returning itself.
   failureMode: 'return',
-  // The one service the handler reads: the Catalog read once at startup. Declared here
-  // so the handler's own `yield* Catalog` is typed against it; the read in
-  // `tools/index.ts`, where the toolkit layer is built, is what puts the port in the
-  // layer's requirements and captures the instance into the handlers' context.
-  // Stryker disable next-line ArrayDeclaration: the list is read by the type system
-  // alone — at runtime the handler finds the Catalog in its context either way, and no
-  // composition without one typechecks — so no test can tell it from an empty list.
-  dependencies: [Catalog],
 })
 
 export const toolkit: Toolkit.Toolkit<{ readonly load_skill: typeof loadSkill }> =
   Toolkit.make(loadSkill)
 
 /**
- * The real handler: it serves the startup copy the Catalog holds, so it touches nothing
- * on the machine and the only way it can fail is a name the Catalog does not know.
+ * The real handler, closed over the Catalog the toolkit layer was built with: it serves
+ * the startup copy, so it touches nothing on the machine and the only way it can fail is
+ * a name the Catalog does not know.
  */
-// Stryker disable next-line StringLiteral: the span name is for whoever traces a run; no
-// test reads spans, and the tool's own name already names the call.
-export const handler: Handler<'load_skill'> = Effect.fn('load_skill')(function* ({ name }) {
-  const catalog = yield* Catalog
+export const serving = (catalog: ReadonlyMap<string, Skill>): Handler<'load_skill'> =>
+  // Stryker disable next-line StringLiteral: the span name is for whoever traces a run; no
+  // test reads spans, and the tool's own name already names the call.
+  Effect.fn('load_skill')(function* ({ name }) {
+    const skill = catalog.get(name)
 
-  const skill = catalog.get(name)
+    if (skill === undefined) {
+      return yield* new SkillNotFound({ name, reason: unknown(name, catalog) })
+    }
 
-  if (skill === undefined) {
-    return yield* new SkillNotFound({ name, reason: unknown(name, catalog) })
-  }
+    return `<skill name="${name}" path="${skill.path}">\n${skill.body}\n</skill>`
+  })
 
-  return `<skill name="${name}" path="${skill.path}">\n${skill.body}\n</skill>`
-})
+/**
+ * The Catalog is read once, here, while the toolkit layer is built — never per call. The
+ * handler closes over the copy, which is what puts `Catalog` in this effect's
+ * requirements: a composition that forgets it is a compile error, not a load that finds
+ * nothing at runtime.
+ */
+export const handlers: Effect.Effect<
+  Toolkit.HandlersFrom<(typeof toolkit)['tools']>,
+  never,
+  Catalog
+> = Effect.map(Catalog, (catalog) => toolkit.of({ load_skill: serving(catalog) }))

@@ -17,7 +17,7 @@ import * as WritePlan from './write-plan.ts'
 
 import type { Tools } from './toolkit.ts'
 
-import { Catalog } from '#catalog.ts'
+import type { Catalog } from '#catalog.ts'
 
 import type { Workspace } from '#workspace.ts'
 
@@ -56,11 +56,10 @@ export type Handlers = Tool.HandlersFor<Tools>
 // seam for it. `Files` is provided here because the record of what has been read
 // only means anything if the three tools that read and write files share one.
 //
-// The Catalog is read here, not merely declared where the load handler is: a tool's
-// `dependencies` list types its handler alone, while `Toolkit.toLayer` carries only
-// what its build effect reads. Reading the port is what puts `Catalog` in this layer's
-// requirements — a composition that forgets it is a compile error — and what captures
-// the same instance into every handler's context.
+// The Catalog is read here, while this layer is built, not per call: `LoadSkill.handlers`
+// reads the port and closes over the copy. That read is what puts `Catalog` in this
+// layer's requirements — a composition that forgets it is a compile error — and what
+// makes `load_skill` serve the same startup copy the conversation got.
 export const toolkitLayer: Layer.Layer<
   Handlers,
   never,
@@ -70,13 +69,10 @@ export const toolkitLayer: Layer.Layer<
     Effect.gen(function* () {
       const hooks = yield* Hooks
 
-      // The read that names the Catalog above; the instance is not used here, only
-      // captured by the toolkit when the handler context is made.
-      yield* Catalog
-
       const bash = yield* Bash.handlers
       const editFile = yield* EditFile.handlers
       const glob = yield* Glob.handlers
+      const loadSkill = yield* LoadSkill.handlers
       const readFile = yield* ReadFile.handlers
       const writeFile = yield* WriteFile.handlers
 
@@ -91,7 +87,7 @@ export const toolkitLayer: Layer.Layer<
         write_plan: before(hooks, 'write_plan', WritePlan.handler),
         // A load serves the Catalog's startup copy and touches nothing, so no Gate
         // stands in front of it either; it passes through the same empty seam.
-        load_skill: before(hooks, 'load_skill', LoadSkill.handler),
+        load_skill: before(hooks, 'load_skill', loadSkill.load_skill),
       })
     }),
   )

@@ -14,7 +14,7 @@ import * as Util from 'node:util'
 
 import { Chat, LanguageModel, Prompt } from 'effect/ai'
 
-import type { Path, PlatformError } from 'effect'
+import type { Path } from 'effect'
 import type { AiError, Response } from 'effect/ai'
 import type { ChildProcessSpawner } from 'effect/process'
 
@@ -32,7 +32,7 @@ import * as WritePlan from '#tools/write-plan.ts'
 import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
-import type { Skill, SkillUnreadable } from '#catalog.ts'
+import type { Skill } from '#catalog.ts'
 import type { InstructionsUnreadable } from '#prompt.ts'
 import type { Judge } from '#judge.ts'
 import type { Handler } from '#tools/hooks.ts'
@@ -345,19 +345,20 @@ export const brokenModel = (
 // one string, so a can is a string, and what one tool's answer says against another's is
 // nothing the loop can see. `write_plan` touches nothing, so it needs no can: its real
 // handler runs, storing into whatever holder of the Plan is around the call. `load_skill`
-// is the same: its real handler serves the in-memory Catalog the harness provides. A test
-// that wants an act refused, or a tool to fail on its own, plays that in the hooks a can
-// runs behind — the seam takes the failure as the tool's own, whether it stood in for one
-// of the Gates or nothing at all.
-const canned = toolkit.of({
-  bash: () => Effect.succeed('exit 0\nhi'),
-  edit_file: () => Effect.succeed('the file is the way the edit left it'),
-  glob: () => Effect.succeed('kept.txt'),
-  load_skill: LoadSkill.handler,
-  read_file: () => Effect.succeed('kept'),
-  write_file: () => Effect.succeed('wrote 4 bytes'),
-  write_plan: WritePlan.handler,
-})
+// is the same: its real handler serves the in-memory Catalog the harness provides, so a
+// test's Catalog is the one a load reads. A test that wants an act refused, or a tool to
+// fail on its own, plays that in the hooks a can runs behind — the seam takes the failure
+// as the tool's own, whether it stood in for one of the Gates or nothing at all.
+const canned = (catalog: ReadonlyMap<string, Skill>) =>
+  toolkit.of({
+    bash: () => Effect.succeed('exit 0\nhi'),
+    edit_file: () => Effect.succeed('the file is the way the edit left it'),
+    glob: () => Effect.succeed('kept.txt'),
+    load_skill: LoadSkill.serving(catalog),
+    read_file: () => Effect.succeed('kept'),
+    write_file: () => Effect.succeed('wrote 4 bytes'),
+    write_plan: WritePlan.handler,
+  })
 
 /**
  * The tools answering from cans, the model the one given — `scriptedModel` for a script,
@@ -375,6 +376,8 @@ export const rehearsed = (
   answers: Partial<{ readonly [Name in keyof Tools]: Handler<Name> }> = {},
   catalog: ReadonlyMap<string, Skill> = withoutSkills,
 ): Effect.Effect<Array<Activity>> => {
+  const cans = canned(catalog)
+
   const program = Effect.gen(function* () {
     const kit = yield* toolkit
     const conversation = yield* Chat.fromPrompt(Prompt.empty)
@@ -398,13 +401,13 @@ export const rehearsed = (
         toolkit
           .toLayer(
             toolkit.of({
-              bash: before(hooks, 'bash', answers.bash ?? canned.bash),
-              edit_file: before(hooks, 'edit_file', answers.edit_file ?? canned.edit_file),
-              glob: before(hooks, 'glob', answers.glob ?? canned.glob),
-              load_skill: before(hooks, 'load_skill', answers.load_skill ?? canned.load_skill),
-              read_file: before(hooks, 'read_file', answers.read_file ?? canned.read_file),
-              write_file: before(hooks, 'write_file', answers.write_file ?? canned.write_file),
-              write_plan: before(hooks, 'write_plan', answers.write_plan ?? canned.write_plan),
+              bash: before(hooks, 'bash', answers.bash ?? cans.bash),
+              edit_file: before(hooks, 'edit_file', answers.edit_file ?? cans.edit_file),
+              glob: before(hooks, 'glob', answers.glob ?? cans.glob),
+              load_skill: before(hooks, 'load_skill', answers.load_skill ?? cans.load_skill),
+              read_file: before(hooks, 'read_file', answers.read_file ?? cans.read_file),
+              write_file: before(hooks, 'write_file', answers.write_file ?? cans.write_file),
+              write_plan: before(hooks, 'write_plan', answers.write_plan ?? cans.write_plan),
             }),
           )
           .pipe(Layer.provideMerge(Layer.succeed(Catalog, catalog))),
@@ -425,10 +428,7 @@ export const sessioned = (
   model: Layer.Layer<LanguageModel.LanguageModel>,
   requests: ReadonlyArray<string>,
   tools: Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace>,
-): Effect.Effect<
-  Array<Activity>,
-  InstructionsUnreadable | SkillUnreadable | PlatformError.PlatformError
-> => {
+): Effect.Effect<Array<Activity>, InstructionsUnreadable> => {
   const program = Effect.gen(function* () {
     const agent = yield* Session
 
@@ -465,7 +465,5 @@ export const asked = (
   script: Script,
   requests: ReadonlyArray<string>,
   hooks?: Hooks,
-): Effect.Effect<
-  Array<Activity>,
-  InstructionsUnreadable | SkillUnreadable | PlatformError.PlatformError
-> => sessioned(scriptedModel(script), requests, services(process.cwd(), hooks))
+): Effect.Effect<Array<Activity>, InstructionsUnreadable> =>
+  sessioned(scriptedModel(script), requests, services(process.cwd(), hooks))
