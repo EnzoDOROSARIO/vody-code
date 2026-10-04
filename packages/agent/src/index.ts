@@ -43,6 +43,7 @@ export type {
   Activity,
   Breakdown,
   Impasse,
+  Reminder,
   Reply,
   ToolCall,
   ToolFailure,

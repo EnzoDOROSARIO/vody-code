@@ -72,3 +72,23 @@ export const fresh: Effect.Effect<Plan> = Effect.gen(function* () {
     written: Ref.get(written),
   }
 })
+
+// How a Step reads in the Reminder's words: the same mark the screen shows it behind,
+// because the message is the Plan said back to the model.
+const marks = {
+  completed: '[x]',
+  in_progress: '[>]',
+  pending: '[ ]',
+} satisfies { readonly [Status in Step['status']]: string }
+
+/**
+ * The Reminder's message: the Plan as it stands, said to the model by the harness rather
+ * than the person, with every Step and its status, and what to do if the Plan no longer
+ * matches the work. The words are pinned by a test; changing them is a deliberate act.
+ */
+export const reminder = (steps: ReadonlyArray<Step>): string =>
+  [
+    'Reminder from the harness: your Plan still has unfinished Steps. This is the Plan as you last wrote it:',
+    ...steps.map((step) => `${marks[step.status]} ${step.text}`),
+    'If the Plan no longer matches the work, write it again with write_plan.',
+  ].join('\n')

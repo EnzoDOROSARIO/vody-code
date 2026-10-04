@@ -3,7 +3,7 @@ import { Effect } from 'effect'
 import { AiError, Response } from 'effect/unstable/ai'
 
 import { App, Prompt, Transcript, keystroke, transcribe, written } from '#app.tsx'
-import { BOLD, DIM, GREY_BACKGROUND, colourful, plain } from './testing.ts'
+import { BOLD, DIM, GREY_BACKGROUND, ITALIC, colourful, plain } from './testing.ts'
 
 import { CommandRefused } from 'agent'
 
@@ -245,6 +245,43 @@ it('a successful Plan write stays as quiet as any other non-bash result', () => 
   })
 
   expect(transcribe(acknowledged)).toBeUndefined()
+})
+
+// A Reminder is the loop speaking mid-Turn: the line says what happened in its voice,
+// and the Steps it restated follow behind the same marks a Plan write gets.
+it('a Reminder is the loop speaking, with the Plan it restated', () => {
+  expect(
+    transcribe({
+      steps: [
+        { status: 'pending', text: 'read the code' },
+        { status: 'in_progress', text: 'change it' },
+        { status: 'completed', text: 'run the tests' },
+      ],
+      type: 'reminder',
+    }),
+  ).toEqual({
+    source: 'reminder',
+    text: 'The agent was reminded of its Plan:\n[ ] read the code\n[>] change it\n[x] run the tests',
+  })
+})
+
+// The loop says two things now, and they read differently: a Reminder is the loop
+// mid-Turn, so it is set in italic, where an Impasse or a Breakdown is the loop's last
+// word and stays bold. Neither wears a tool's grey.
+it('a Reminder is set in italic, not the bold of a Turn ending', () => {
+  const reminder: Line = {
+    source: 'reminder',
+    text: 'The agent was reminded of its Plan:\n[ ] read the code',
+  }
+
+  const painted = colourful(<Transcript lines={[reminder]} />, 400)
+
+  expect(painted).toContain(ITALIC)
+  expect(painted).not.toContain(BOLD)
+  expect(painted).not.toContain(GREY_BACKGROUND)
+  expect(plain(<Transcript lines={[reminder]} />, 400)).toBe(
+    'The agent was reminded of its Plan:\n[ ] read the code',
+  )
 })
 
 const impasse: Impasse = { refusals: 3, type: 'impasse' }
