@@ -137,7 +137,7 @@ it('a refusal round-trips whole, and a tripped line that is none of them does no
 
   const encoded = Schema.encodeEffect(ActRefused)(refusal).pipe(Effect.runSync)
 
-  const decoded = Schema.decodeUnknownEffect(ActRefused)(encoded).pipe(Effect.runSync)
+  const decoded = Schema.decodeEffect(ActRefused)(encoded).pipe(Effect.runSync)
 
   expect(decoded.tripped.map(({ line }) => line)).toEqual(['low', 'high', 'absolute'])
 
