@@ -2,7 +2,7 @@ import { Effect, Schema } from 'effect'
 
 import { Tool, Toolkit } from 'effect/unstable/ai'
 
-import { Plan, Steps } from './plan.ts'
+import { PlanHolder, Steps } from './plan.ts'
 
 import type { Handler } from './hooks.ts'
 
@@ -30,14 +30,16 @@ export const toolkit: Toolkit.Toolkit<{ readonly write_plan: typeof writePlan }>
   Toolkit.make(writePlan)
 
 /**
- * The real handler: it touches nothing on the machine, so it needs no can and no Gate —
- * it stores the Steps in the Turn's Plan and acknowledges briefly, with no echo of them.
+ * The real handler: it touches nothing on the machine, so no Gate stands in front of it —
+ * it stores the Steps in the Turn's holder of the Plan and acknowledges briefly, with no
+ * echo of them.
  */
-export const handler: Handler<'write_plan'> = ({ steps }) =>
-  Effect.gen(function* () {
-    const plan = yield* Plan
+// Stryker disable next-line StringLiteral: the span name is for whoever traces a run; no
+// test reads spans, and the tool's own name already names the call.
+export const handler: Handler<'write_plan'> = Effect.fn('write_plan')(function* ({ steps }) {
+  const plan = yield* PlanHolder
 
-    yield* plan.write(steps)
+  yield* plan.write(steps)
 
-    return 'Plan written'
-  })
+  return 'Plan written'
+})

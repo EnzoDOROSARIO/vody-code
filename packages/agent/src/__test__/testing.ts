@@ -301,10 +301,10 @@ export const brokenModel = (
 // The tools' answers from cans: every tool that touches the machine states a success as
 // one string, so a can is a string, and what one tool's answer says against another's is
 // nothing the loop can see. `write_plan` touches nothing, so it needs no can: its real
-// handler runs, storing into whatever Plan is around the call. A test that wants an act
-// refused, or a tool to fail on its own, plays that in the hooks a can runs behind — the
-// seam takes the failure as the tool's own, whether it stood in for one of the Gates or
-// nothing at all.
+// handler runs, storing into whatever holder of the Plan is around the call. A test that
+// wants an act refused, or a tool to fail on its own, plays that in the hooks a can runs
+// behind — the seam takes the failure as the tool's own, whether it stood in for one of
+// the Gates or nothing at all.
 const canned = toolkit.of({
   bash: () => Effect.succeed('exit 0\nhi'),
   edit_file: () => Effect.succeed('the file is the way the edit left it'),

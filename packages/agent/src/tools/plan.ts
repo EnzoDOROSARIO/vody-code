@@ -39,54 +39,43 @@ export type Written = {
   readonly writes: number
 }
 
+// Stryker disable next-line ArrayDeclaration: nothing reads the initial Steps — a
+// Reminder needs an armed loop, and only a write arms it, replacing these Steps whole —
+// so no test can tell an empty start from any other.
 const NOTHING: Written = { steps: [], writes: 0 }
 
 /**
- * Where the Plan is held for a Turn: `write` is the `write_plan` handler's alone, and
- * `written` the loop's. `writes` counts the accepted writes, which is what lets the loop
- * tell which call of the model wrote.
+ * The Turn's holder of the Plan: `write` is the `write_plan` handler's alone, and it is
+ * all that goes into context. The loop's reader comes from `fresh` instead, handed to
+ * the loop directly, so nothing but the handler can reach the Plan to write it.
  */
-export type Plan = {
-  readonly written: Effect.Effect<Written>
+export type PlanHolder = {
   readonly write: (steps: ReadonlyArray<Step>) => Effect.Effect<void>
 }
 
 // A Reference with a default, so reading it moves no handler's requirements, and a write
 // run outside a Turn — a tool harness — records into nothing rather than failing: no Turn
 // is around it, and none is the honest answer.
-export const Plan: Context.Reference<Plan> = Context.Reference<Plan>(
+export const PlanHolder: Context.Reference<PlanHolder> = Context.Reference<PlanHolder>(
   // Stryker disable next-line StringLiteral: the key only names the reference in a
   // context, and nothing else in the package claims a name it could collide with.
-  'agent/tools/Plan',
-  { defaultValue: () => ({ write: () => Effect.void, written: Effect.succeed(NOTHING) }) },
+  'agent/tools/PlanHolder',
+  { defaultValue: () => ({ write: () => Effect.void }) },
 )
 
-/** A fresh holder for one Turn: nothing written yet, and no write recorded. */
-export const fresh: Effect.Effect<Plan> = Effect.gen(function* () {
+/** A fresh holder for one Turn, and the reader beside it: nothing written yet, and no
+ * write recorded. The reader belongs to the loop, which never has to read the holder
+ * back out of context. */
+export const fresh: Effect.Effect<{
+  readonly holder: PlanHolder
+  readonly written: Effect.Effect<Written>
+}> = Effect.gen(function* () {
   const written = yield* Ref.make(NOTHING)
 
   return {
-    write: (steps) => Ref.update(written, (current) => ({ steps, writes: current.writes + 1 })),
+    holder: {
+      write: (steps) => Ref.update(written, (current) => ({ steps, writes: current.writes + 1 })),
+    },
     written: Ref.get(written),
   }
 })
-
-// How a Step reads in the Reminder's words: the same mark the screen shows it behind,
-// because the message is the Plan said back to the model.
-const marks = {
-  completed: '[x]',
-  in_progress: '[>]',
-  pending: '[ ]',
-} satisfies { readonly [Status in Step['status']]: string }
-
-/**
- * The Reminder's message: the Plan as it stands, said to the model by the harness rather
- * than the person, with every Step and its status, and what to do if the Plan no longer
- * matches the work. The words are pinned by a test; changing them is a deliberate act.
- */
-export const reminder = (steps: ReadonlyArray<Step>): string =>
-  [
-    'Reminder from the harness: your Plan still has unfinished Steps. This is the Plan as you last wrote it:',
-    ...steps.map((step) => `${marks[step.status]} ${step.text}`),
-    'If the Plan no longer matches the work, write it again with write_plan.',
-  ].join('\n')

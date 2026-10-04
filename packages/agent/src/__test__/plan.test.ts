@@ -1,10 +1,10 @@
 import { expect, it } from '@effect/vitest'
-import { Effect, Predicate } from 'effect'
+import { Effect, Predicate, Stream } from 'effect'
 import type { Prompt, Response } from 'effect/unstable/ai'
 
 import { rehearsed, scriptedModel } from './testing.ts'
 import { ActRefused } from '#tools/index.ts'
-import { Plan } from '#tools/plan.ts'
+import * as WritePlan from '#tools/write-plan.ts'
 
 import type { Script } from './testing.ts'
 import type { Activity } from '#activity.ts'
@@ -47,8 +47,8 @@ const malformed = (turn: number): Array<Part> => [
   },
 ]
 
-// A write past the working tree, which the write Gate refuses: the same play the
-// refusals tests use, with `write_plan` named as ungated beside it.
+// A write past the working tree: refused by the seam below, which turns away every
+// `write_file`, so none of them reaches the disk.
 const refusedWrite = (turn: number, slot = 0): Array<Part> => [
   {
     type: 'tool-call',
@@ -63,7 +63,10 @@ const refusal = new ActRefused({
   tripped: [{ axis: 'serves_request', line: 'low', probability: 0, threshold: 0.3 }],
 })
 
-const outsideRefused: Hooks = { write_file: () => Effect.fail(refusal) }
+// Every `write_file` is refused, so the writes above never happen. `write_plan` is not
+// named because no Gate stands in front of it: the refusals tests' full play names it
+// ungated, and this file plays only the refusal it needs.
+const writesRefused: Hooks = { write_file: () => Effect.fail(refusal) }
 
 // A model that writes the Plan the given way on each call of the model, one write per
 // call, and answers when the writes run out.
@@ -142,12 +145,13 @@ const COMPLETE: ReadonlyArray<Step> = [
 ]
 
 // The Reminder's words, pinned: said by the harness rather than the person, every Step
-// with its status, and the way out if the Plan no longer matches the work.
+// with its status in the words `write_plan` taught, and the way out if the Plan no longer
+// matches the work.
 const REMINDER = [
   'Reminder from the harness: your Plan still has unfinished Steps. This is the Plan as you last wrote it:',
-  '[x] read the code',
-  '[>] change it',
-  '[ ] run the tests',
+  '- read the code (completed)',
+  '- change it (in_progress)',
+  '- run the tests (pending)',
   'If the Plan no longer matches the work, write it again with write_plan.',
 ].join('\n')
 
@@ -240,7 +244,7 @@ it.live('a Plan write between Gate refusals does not clear the count', () =>
         turns([refusedWrite, (turn) => write(turn, STEPS), refusedWrite, refusedWrite]),
       ),
       ['plan this'],
-      outsideRefused,
+      writesRefused,
     )
 
     expect(activities.filter((activity) => activity.type === 'tool-call')).toHaveLength(4)
@@ -256,7 +260,7 @@ it.live('a refused Plan write never counts toward an Impasse', () =>
     const activities = yield* rehearsed(
       scriptedModel(turns([refusedWrite, malformed, refusedWrite])),
       ['plan this'],
-      outsideRefused,
+      writesRefused,
     )
 
     expect(planFailure(activities)).toContain('Plan must have at most one step in progress')
@@ -339,7 +343,8 @@ it.live('a new write after a Reminder replaces the Plan and arms the Reminder ag
 )
 
 // A write in the same call as other tools is still a write: it resets the count the
-// call was going to spend, so the Reminder that comes later restates the newer Plan.
+// call was going to spend. Only two calls follow it, so no Reminder comes — where a
+// count left standing would have reached three on the very call that wrote.
 it.live('a write in the same call as other tools resets the count', () =>
   Effect.gen(function* () {
     const { script } = heard(
@@ -350,13 +355,13 @@ it.live('a write in the same call as other tools resets the count', () =>
         (turn) => [...write(turn, OTHER), ...look(turn)],
         look,
         look,
-        look,
       ]),
     )
 
     const activities = yield* rehearsed(scriptedModel(script), ['plan this'])
 
-    expect(reminders(activities)).toEqual([{ steps: OTHER, type: 'reminder' }])
+    expect(reminders(activities)).toEqual([])
+    expect(activities.at(-1)).toEqual({ id: 'text-1', text: 'done', type: 'reply' })
   }),
 )
 
@@ -411,19 +416,25 @@ it.live('a Plan written in an earlier Turn brings no Reminder in a later one', (
   }),
 )
 
-// A refused write is not a write: before any arming it leaves the Turn unarmed, and an
-// armed count counts it like any other call that did not write.
+// A refused write is not a write: it cannot arm the Reminder, and an armed count counts
+// it like any other call that did not write. Spending the one Reminder a write buys and
+// then refusing a write shows both: a second Reminder would mean the refused write had
+// armed the loop again.
 it.live('a refused write neither arms the Reminder nor resets the count', () =>
   Effect.gen(function* () {
-    const unarmed = heard(turns([malformed, look, look, look, look]))
+    const spent = heard(
+      turns([(turn) => write(turn, STEPS), look, look, look, malformed, look, look, look]),
+    )
 
-    expect(reminders(yield* rehearsed(scriptedModel(unarmed.script), ['plan this']))).toEqual([])
+    const activities = yield* rehearsed(scriptedModel(spent.script), ['plan this'])
+
+    expect(reminders(activities)).toEqual([{ steps: STEPS, type: 'reminder' }])
 
     const armed = heard(turns([(turn) => write(turn, STEPS), look, malformed, look]))
 
-    const activities = yield* rehearsed(scriptedModel(armed.script), ['plan this'])
+    const carried = yield* rehearsed(scriptedModel(armed.script), ['plan this'])
 
-    expect(reminders(activities)).toEqual([{ steps: STEPS, type: 'reminder' }])
+    expect(reminders(carried)).toEqual([{ steps: STEPS, type: 'reminder' }])
   }),
 )
 
@@ -440,23 +451,30 @@ it.live('an Impasse and a Reminder falling on the same call bring only the Impas
       ]),
     )
 
-    const activities = yield* rehearsed(scriptedModel(script), ['plan this'], outsideRefused)
+    const activities = yield* rehearsed(scriptedModel(script), ['plan this'], writesRefused)
 
     expect(reminders(activities)).toEqual([])
     expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
   }),
 )
 
-// The holder's default is total: a handler run with no Turn around it — a tool harness —
-// succeeds without failing for want of a Turn, and its write records into nothing.
-it.live('outside a Turn the Plan holds nothing and a write records into nothing', () =>
+// The holder's default is total: with no Turn around it — a tool harness — the real
+// handler still succeeds, its write recording into nothing.
+it.live('outside a Turn the write_plan handler still succeeds', () =>
   Effect.gen(function* () {
-    const plan = yield* Plan
+    const results = yield* Stream.runCollect(
+      Stream.unwrap(
+        Effect.gen(function* () {
+          const kit = yield* WritePlan.toolkit
 
-    expect(yield* plan.written).toEqual({ steps: [], writes: 0 })
+          return yield* kit.handle('write_plan', { steps: STEPS })
+        }),
+      ),
+    ).pipe(
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+      Effect.provide(WritePlan.toolkit.toLayer({ write_plan: WritePlan.handler })),
+    )
 
-    yield* plan.write([{ status: 'pending', text: 'not held' }])
-
-    expect(yield* plan.written).toEqual({ steps: [], writes: 0 })
+    expect(results.at(-1)).toMatchObject({ isFailure: false, result: 'Plan written' })
   }),
 )

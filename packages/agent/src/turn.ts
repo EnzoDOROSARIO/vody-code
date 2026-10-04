@@ -7,11 +7,11 @@ import type { AiError, Chat, LanguageModel, Response, Toolkit } from 'effect/uns
 import { ToolCall } from './activity.ts'
 import { Request } from './request.ts'
 import { watched } from './tools/hooks.ts'
-import { Plan, fresh, reminder } from './tools/plan.ts'
+import { PlanHolder, fresh } from './tools/plan.ts'
 
 import type { Activity, ToolResult } from './activity.ts'
 import type { Tools } from './tools/index.ts'
-import type { Step } from './tools/plan.ts'
+import type { Step, Written } from './tools/plan.ts'
 
 // The arguments are checked against the same schema the tool itself decodes with, so
 // a call that fails here is one the tool is about to refuse. Staying quiet costs
@@ -71,8 +71,7 @@ const refused = (result: ToolResult): boolean =>
 
 /** What one call of the model met at the Gates: the refusals it was given to work around.
  * Whether a gated act got through is not part of this — the seam recorded it, and the
- * loop reads that separately. `RefusalStep` rather than `Step`, which the glossary keeps
- * for the Plan. */
+ * loop reads that separately. The name keeps `Step` for the Plan, as the glossary has it. */
 type RefusalStep = {
   readonly refused: number
 }
@@ -81,32 +80,57 @@ const UNTOUCHED: RefusalStep = { refused: 0 }
 
 // Any other failure, a file not found or an edit that matched nothing, is the model's to
 // fix and says nothing about the Gate either way.
-const met = (step: RefusalStep, result: ToolResult): RefusalStep =>
-  refused(result) ? { ...step, refused: step.refused + 1 } : step
+const met = (counted: RefusalStep, result: ToolResult): RefusalStep =>
+  refused(result) ? { ...counted, refused: counted.refused + 1 } : counted
 
 // The count after one call of the model. The tools a call reached for run concurrently,
 // so their results arrive in whatever order they finish, and a model that asked for them
 // all at once saw none of them before asking: inside one call nothing comes between
 // anything else. So the rule reads the call as a whole. Its refusals add up, and only a
 // call the seam recorded a passage for and that was refused nothing clears the count.
-const tallied = (refusals: number, step: RefusalStep, passed: boolean): number =>
-  passed && step.refused === 0 ? 0 : refusals + step.refused
+const tallied = (refusals: number, counted: RefusalStep, passed: boolean): number =>
+  passed && counted.refused === 0 ? 0 : refusals + counted.refused
 
-/** What the loop knows about reminding the agent of its Plan: whether a write has armed
- * the Reminder, how many calls of the model have gone by since the last write, and the
- * write count the loop last saw, so it can tell a call that wrote the Plan from one that
- * only followed a write. */
-type ReminderState = {
-  readonly armed: boolean
-  readonly calls: number
-  readonly writes: number
+/** What the loop knows about reminding the agent of its Plan. A Turn starts unarmed, and
+ * only a write of its Plan arms the Reminder: an unarmed state carries nothing but the
+ * write count the loop last saw, an armed one adds how many calls of the model have gone
+ * by since. That count is what lets the loop tell a call that wrote the Plan from one
+ * that only followed a write. */
+type ReminderState =
+  | { readonly armed?: false; readonly writes: number }
+  | { readonly armed: true; readonly calls: number; readonly writes: number }
+
+const UNARMED: ReminderState = { writes: 0 }
+
+// The Reminder's state after one call of the model that reached for a tool. A write
+// anywhere among the call's tools arms it afresh, with the count at zero; a call that
+// wrote nothing moves an armed count on by one, and leaves an unarmed state alone,
+// because only a write of this Turn's Plan can arm the Reminder.
+const reminded = (state: ReminderState, written: Written): ReminderState => {
+  if (written.writes > state.writes) {
+    return { armed: true, calls: 0, writes: written.writes }
+  }
+
+  // Stryker disable next-line ConditionalExpression,BlockStatement: an unarmed state's
+  // count is never read — only a write arms the Reminder, and that arms afresh with the
+  // count at zero — so whether this branch moves it or leaves it cannot be observed.
+  if (state.armed !== true) {
+    return state
+  }
+
+  return { ...state, calls: state.calls + 1 }
 }
 
-// Stryker disable next-line BooleanLiteral: a Turn that writes nothing holds no Steps,
-// so an armed Reminder can never fire before the first write — and that write arms it
-// whatever this starts as — which leaves no call of the model that can tell the initial
-// bit apart.
-const UNARMED: ReminderState = { armed: false, calls: 0, writes: 0 }
+// The Reminder's words: the Plan as it stands, said to the model by the harness rather
+// than the person, with every Step and its status in the words `write_plan` taught, and
+// the way out if the Plan no longer matches the work. The words are pinned by a test;
+// changing them is a deliberate act.
+const reminder = (steps: ReadonlyArray<Step>): string =>
+  [
+    'Reminder from the harness: your Plan still has unfinished Steps. This is the Plan as you last wrote it:',
+    ...steps.map((step) => `- ${step.text} (${step.status})`),
+    'If the Plan no longer matches the work, write it again with write_plan.',
+  ].join('\n')
 
 // The Reminder reaches the model the way the harness speaks: one system message of its
 // own, after the history the call already carries, never as though the person had typed
@@ -117,14 +141,15 @@ const reminderPrompt = (steps: ReadonlyArray<Step>): Prompt.Prompt =>
 /** What one Turn's loop carries through every call of the model: the conversation it
  * continues, the handlers it reaches for, the Turn's refusal count, made once in
  * `answer` and cleared only by a call that got a gated act through and was refused
- * nothing, and the Reminder's own state, which only a write of the Plan in this Turn
- * arms. The words of the moment vary call to call, so they are `respond`'s own argument
- * and not part of this. */
+ * nothing, the reader of the Turn's own holder of the Plan, and the Reminder's state,
+ * which only a write of the Plan in this Turn arms. The words of the moment vary call to
+ * call, so they are `respond`'s own argument and not part of this. */
 type Turn = {
   readonly chat: Chat.Chat
   readonly refusals: Ref.Ref<number>
   readonly reminder: Ref.Ref<ReminderState>
   readonly tools: Toolkit.WithHandler<Tools>
+  readonly written: Effect.Effect<Written>
 }
 
 // One call of the model and, if it reached for a tool, the calls after it. This is the
@@ -138,7 +163,7 @@ const respond = (
   Stream.unwrap(
     Effect.gen(function* () {
       const calledTools = yield* Ref.make(false)
-      const step = yield* Ref.make(UNTOUCHED)
+      const counted = yield* Ref.make(UNTOUCHED)
 
       // One Passage per call of the model: what this call's Gates let through cannot
       // clear the count of the call after it.
@@ -153,7 +178,7 @@ const respond = (
           // Stryker disable next-line ConditionalExpression: `met` changes nothing for a
           // part that is not a tool result, so taken or not the branch is unobservable.
           if (part.type === 'tool-result') {
-            return Ref.update(step, (current) => met(current, part))
+            return Ref.update(counted, (current) => met(current, part))
           }
 
           return Effect.void
@@ -171,7 +196,7 @@ const respond = (
       const rest = Stream.unwrap(
         Effect.gen(function* () {
           const reached = yield* Ref.get(calledTools)
-          const gated = yield* Ref.get(step)
+          const gated = yield* Ref.get(counted)
           const passed = yield* watchedCall.passed
 
           const count = yield* Ref.updateAndGet(turn.refusals, (current) =>
@@ -186,16 +211,9 @@ const respond = (
           // and the count it leaves behind starts at zero. A call that wrote nothing
           // moves an armed count on by one; an unarmed one changes nothing, because only
           // a write of this Turn's Plan can arm the Reminder.
-          const plan = yield* Plan
-          const written = yield* plan.written
-          const state = yield* Ref.get(turn.reminder)
+          const written = yield* turn.written
 
-          const next =
-            written.writes > state.writes
-              ? { armed: true, calls: 0, writes: written.writes }
-              : state.armed
-                ? { ...state, calls: state.calls + 1 }
-                : state
+          const next = reminded(yield* Ref.get(turn.reminder), written)
 
           yield* Ref.set(turn.reminder, next)
 
@@ -203,15 +221,15 @@ const respond = (
             return Stream.succeed<Activity>({ refusals: count, type: 'impasse' })
           }
 
-          const unfinished = written.steps.some((held) => held.status !== 'completed')
+          const unfinished = written.steps.some((step) => step.status !== 'completed')
 
-          if (!next.armed || next.calls < CALLS_BEFORE_A_REMINDER || !unfinished) {
+          if (next.armed !== true || next.calls < CALLS_BEFORE_A_REMINDER || !unfinished) {
             return respond(turn, [])
           }
 
           // At most one Reminder for each write: delivering it disarms, and only the
           // next write arms it again.
-          yield* Ref.set(turn.reminder, { ...next, armed: false })
+          yield* Ref.set(turn.reminder, { writes: next.writes })
 
           return Stream.concat(
             Stream.succeed<Activity>({ steps: written.steps, type: 'reminder' }),
@@ -237,8 +255,8 @@ const broken = (error: AiError.AiError): Stream.Stream<Activity> =>
  * Breakdown a model that failed brought it to. The words are the Turn's Request, and a
  * `bash` handler, or anything else running inside the Turn, reads them from `Request` on
  * the first call of the model and on every continuation after a tool result. Each Turn
- * counts its refusals from none, holds a Plan of its own — fresh, so only a write made
- * in this Turn can arm the Reminder — and starts unarmed.
+ * counts its refusals from none, holds the Turn's own holder of the Plan — fresh, so
+ * only a write made in this Turn can arm the Reminder — and starts unarmed.
  *
  * The stream does not fail: a call of the model that breaks is reported as the
  * Breakdown, the Turn's last Activity, so whoever runs the Turn to its end — the
@@ -251,15 +269,16 @@ export const answer = (
 ): Stream.Stream<Activity, never, LanguageModel.LanguageModel> =>
   Stream.unwrap(
     Effect.gen(function* () {
+      const { holder, written } = yield* fresh
+
       const turn: Turn = {
         chat,
         refusals: yield* Ref.make(0),
-        reminder: yield* Ref.make(UNARMED),
+        reminder: yield* Ref.make<ReminderState>(UNARMED),
         tools,
+        written,
       }
 
-      const plan = yield* fresh
-
-      return respond(turn, request).pipe(Stream.provideService(Plan, plan))
+      return respond(turn, request).pipe(Stream.provideService(PlanHolder, holder))
     }),
   ).pipe(Stream.provideService(Request, Option.some(request)), Stream.catchTag('AiError', broken))
