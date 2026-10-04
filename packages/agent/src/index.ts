@@ -4,16 +4,19 @@ import type { FileSystem, Path } from 'effect'
 import { FetchHttpClient } from 'effect/http'
 import type { ChildProcessSpawner } from 'effect/process'
 
+import { Catalog } from './catalog.ts'
 import type { CodexAuthenticationRequired } from './credentials.ts'
 import { CodexCredentials } from './credentials.ts'
 import * as Codex from './codex.ts'
 import * as Gates from './gates.ts'
+import { Home } from './home.ts'
 import { Judge } from './judge.ts'
 import { Session } from './session.ts'
 import { toolkitLayer } from './tools/index.ts'
 
 import type { JudgeCredentialsRequired } from './judge.ts'
 import type { InstructionsUnreadable } from './prompt.ts'
+import type { SkillUnreadable } from './catalog.ts'
 import type { Handlers } from './tools/index.ts'
 import type { Workspace } from './workspace.ts'
 
@@ -29,11 +32,14 @@ export {
   FileNotRead,
   FileSystemRefused,
   JudgeDidNotAnswer,
+  SkillNotFound,
   TextNotFound,
   TextNotUnique,
 } from './tools/index.ts'
 
 export { InstructionsUnreadable } from './prompt.ts'
+
+export { SkillUnreadable } from './catalog.ts'
 
 export { Workspace } from './workspace.ts'
 
@@ -62,28 +68,41 @@ export type { Step } from './tools/plan.ts'
  * this is the one gated set, which the package's tests build on as well, so the agent
  * cannot stop running a Gate without that Gate's own tests saying so. The Judge the
  * Gates consult is left open, for `layer` to give it the real one and the tests a
- * scripted one.
+ * scripted one; the Catalog `load_skill` serves is left open the same way, for `layer`
+ * to give the one read at startup and the tests an in-memory one.
  */
 export const handlers: Layer.Layer<
   Handlers,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Judge | Path.Path | Workspace
+  | Catalog
+  | ChildProcessSpawner.ChildProcessSpawner
+  | FileSystem.FileSystem
+  | Home
+  | Judge
+  | Path.Path
+  | Workspace
 > = toolkitLayer.pipe(Layer.provide(Gates.layer))
 
 /**
  * Everything the agent needs from this package, composed as the session the screen
  * mounts: one service that owns a Turn end to end. Both models need their credentials
- * to build, and the conversation needs the workspace's instructions read, so a missing
- * sign-in, a missing Judge key, or unreadable instructions stop the agent before it
- * starts. The credentials port is provided here, with the auth file as its adapter; the
- * model adapter takes the port itself, so a test can put a different one in its place.
+ * to build, and the conversation needs the workspace's instructions and its Catalog of
+ * Skills read, so a missing sign-in, a missing Judge key, unreadable instructions, or a
+ * broken Skill stop the agent before it starts. The credentials port is provided here,
+ * with the auth file as its adapter; the model adapter takes the port itself, so a test
+ * can put a different one in its place. The Catalog is provided once, here, so both the
+ * conversation and the gated handlers read the same copy the disk was read into. The
+ * home directory is provided once as well, outermost, so the write Gate and the Catalog
+ * are handed the same answer.
  */
 export const layer: Layer.Layer<
   Session,
-  CodexAuthenticationRequired | InstructionsUnreadable | JudgeCredentialsRequired,
+  CodexAuthenticationRequired | InstructionsUnreadable | JudgeCredentialsRequired | SkillUnreadable,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
 > = Session.layer.pipe(
   Layer.provide(handlers.pipe(Layer.provide(Judge.layer))),
   Layer.provide(Codex.layer.pipe(Layer.provide(CodexCredentials.fromAuthFile))),
   Layer.provide(FetchHttpClient.layer),
+  Layer.provide(Catalog.layer),
+  Layer.provide(Home.layer),
 )

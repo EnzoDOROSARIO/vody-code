@@ -8,6 +8,7 @@ import { chat } from './prompt.ts'
 import { answer } from './turn.ts'
 import { toolkit } from './tools/index.ts'
 
+import type { Catalog } from './catalog.ts'
 import type { Handlers } from './tools/index.ts'
 import type { InstructionsUnreadable } from './prompt.ts'
 import type { Workspace } from './workspace.ts'
@@ -41,15 +42,16 @@ export class Session extends Context.Service<
   // Stryker restore StringLiteral
 
   /**
-   * The session the agent runs. The workspace's instructions are read while the layer is
-   * built, before any screen exists, so a file that cannot be read is reported to a
-   * terminal that still belongs to the shell. The handlers and the language model stay
-   * open, for the agent's layer to give them the real ones and the tests a scripted one.
+   * The session the agent runs. The workspace's instructions and its Catalog of Skills
+   * are read while the layer is built, before any screen exists, so a file that cannot be
+   * read is reported to a terminal that still belongs to the shell. The handlers and the
+   * language model stay open, for the agent's layer to give them the real ones and the
+   * tests a scripted one.
    */
   static readonly layer: Layer.Layer<
     Session,
     InstructionsUnreadable,
-    Handlers | LanguageModel.LanguageModel | FileSystem.FileSystem | Path.Path | Workspace
+    Catalog | Handlers | LanguageModel.LanguageModel | FileSystem.FileSystem | Path.Path | Workspace
   > = Layer.effect(
     Session,
     Effect.gen(function* () {
@@ -59,7 +61,9 @@ export class Session extends Context.Service<
 
       // A Turn runs to a promise outside any fiber of this runtime, so the services it
       // needs go with it: captured here, where the session is built, and provided again
-      // around every ask.
+      // around every ask. The Catalog does not travel with them: `load_skill` serves the
+      // copy captured when the gated handlers were built, which is the same copy this
+      // layer's conversation was given.
       const services = yield* Effect.context<Handlers | LanguageModel.LanguageModel>()
 
       const ask = (request: string, show: (activity: Activity) => void): Effect.Effect<void> =>

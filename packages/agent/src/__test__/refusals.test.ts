@@ -7,6 +7,7 @@ import { ActRefused, JudgeDidNotAnswer, TextNotFound } from '#tools/index.ts'
 
 import type { Script } from './testing.ts'
 import type { Activity } from '#activity.ts'
+import type { Skill } from '#catalog.ts'
 import type { Call, Hook, Hooks, Tools } from '#tools/index.ts'
 import type { Handler } from '#tools/hooks.ts'
 
@@ -39,11 +40,13 @@ const outsideRefused = ({
 
 // The seam the following tests play with: both tools of the write Gate behind its own
 // rule, and the command Gate letting every command through. A tool with no hook here —
-// read_file, glob — is not gated, which is the seam's to say and no longer the loop's.
+// read_file, glob, load_skill — is not gated, which is the seam's to say and no longer
+// the loop's.
 const writesOutsideRefused = {
   bash: () => Effect.void,
   edit_file: outsideRefused,
   glob: undefined,
+  load_skill: undefined,
   read_file: undefined,
   write_file: outsideRefused,
   write_plan: undefined,
@@ -103,6 +106,18 @@ const read = (turn: number, slot: number): Array<Part> =>
 const search = (turn: number, slot: number): Array<Part> =>
   call(turn, slot, 'glob', { pattern: '**/*.txt' })
 
+const load = (turn: number, slot: number): Array<Part> =>
+  call(turn, slot, 'load_skill', { name: 'tdd' })
+
+const loadMissing = (turn: number, slot: number): Array<Part> =>
+  call(turn, slot, 'load_skill', { name: 'absent' })
+
+// The in-memory Catalog a load reads: no Skills unless a test says otherwise, so no test
+// here touches the workspace's own `.agents/skills/`.
+const CATALOG: ReadonlyMap<string, Skill> = new Map([
+  ['tdd', { body: 'Write the test first.', description: 'Does TDD work', path: '/skills/tdd' }],
+])
+
 const answer: Array<Part> = [{ type: 'text-delta', id: 'text-1', delta: 'done' }]
 
 type Move = (turn: number, slot: number) => Array<Part>
@@ -141,8 +156,9 @@ const talk = (
   hooks: Hooks = {},
   requests: ReadonlyArray<string> = ['tidy up'],
   answers: Partial<{ readonly [Name in keyof Tools]: Handler<Name> }> = {},
+  catalog: ReadonlyMap<string, Skill> = new Map(),
 ): Effect.Effect<Array<Activity>> =>
-  rehearsed(scriptedModel(scripted(moves)), requests, hooks, answers)
+  rehearsed(scriptedModel(scripted(moves)), requests, hooks, answers, catalog)
 
 const calls = (activities: ReadonlyArray<Activity>): number =>
   activities.filter((activity) => activity.type === 'tool-call').length
@@ -215,6 +231,53 @@ it.live('a successful read or search does not clear the count', () =>
 
     expect(calls(activities)).toBe(5)
     expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
+  }),
+)
+
+// A Skill load reads the Catalog and touches nothing, so no Gate stands in front of it:
+// loads between attempts are like reading and searching, and the third refusal ends the
+// Turn with them in between, at the same count.
+it.live('a successful Skill load does not clear the count', () =>
+  Effect.gen(function* () {
+    const activities = yield* talk(
+      [writeOutside, load, writeOutside, load, writeOutside, load],
+      writesOutsideRefused,
+      ['tidy up'],
+      {},
+      CATALOG,
+    )
+
+    expect(calls(activities)).toBe(5)
+    expect(activities.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
+  }),
+)
+
+// A load that failed is `load_skill`'s own answer, not a Gate's: it neither counts as a
+// refusal nor, having done nothing, as an act allowed through.
+it.live('a load that failed neither counts nor clears', () =>
+  Effect.gen(function* () {
+    const twice = repeated(writeOutside, 2)
+
+    const counted = yield* talk(
+      [...twice, loadMissing, writeInside],
+      writesOutsideRefused,
+      ['tidy up'],
+      {},
+      CATALOG,
+    )
+
+    const cleared = yield* talk(
+      [...twice, loadMissing, writeOutside, writeInside],
+      writesOutsideRefused,
+      ['tidy up'],
+      {},
+      CATALOG,
+    )
+
+    expect(closed(counted)).toBe(false)
+    expect(counted.at(-1)).toEqual({ id: 'text-1', text: 'done', type: 'reply' })
+    expect(calls(cleared)).toBe(4)
+    expect(cleared.at(-1)).toEqual({ refusals: 3, type: 'impasse' })
   }),
 )
 

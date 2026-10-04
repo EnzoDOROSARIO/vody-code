@@ -63,6 +63,8 @@ const asked = (call: ToolCall): string => {
       return `edit ${call.params.path}`
     case 'glob':
       return `glob ${call.params.pattern}`
+    case 'load_skill':
+      return `skill ${call.params.name}`
     case 'read_file':
       return `read ${call.params.path}`
     case 'write_file':

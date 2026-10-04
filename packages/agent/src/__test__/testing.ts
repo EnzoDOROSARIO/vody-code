@@ -1,5 +1,5 @@
 import { NodeServices } from '@effect/platform-node'
-import { Effect, Exit, FileSystem, Layer, Ref, Stream } from 'effect'
+import { ConfigProvider, Effect, Exit, FileSystem, Layer, Option, Ref, Stream } from 'effect'
 // The one `git init` the suite launches, once per test process; see `initialised`.
 // oxlint-disable-next-line effecttsgo/node-builtin-import -- a process, run once, outside every effect
 import { execFile } from 'node:child_process'
@@ -22,30 +22,65 @@ const execFileP = promisify(execFile)
 
 import { allowing } from './judging.ts'
 import { answer } from '#turn.ts'
+import { Catalog } from '#catalog.ts'
+import { Home } from '#home.ts'
 import { Session, handlers } from '#index.ts'
 import { before } from '#tools/hooks.ts'
 import { Hooks, toolkit, toolkitLayer } from '#tools/index.ts'
+import * as LoadSkill from '#tools/load-skill.ts'
 import * as WritePlan from '#tools/write-plan.ts'
 import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
+import type { Skill } from '#catalog.ts'
 import type { InstructionsUnreadable } from '#prompt.ts'
 import type { Judge } from '#judge.ts'
 import type { Handler } from '#tools/hooks.ts'
 import type { Handlers, Tools } from '#tools/index.ts'
 
-// `tools` on the platform, with `workspace` as the Workspace.
+// The in-memory Catalog the unit tests run against: no Skills, and no disk read. The
+// real reading is the startup suite's business; these tests are in memory, so they
+// provide this and never touch the workspace's `.agents/skills/`.
+const withoutSkills: Catalog['Service'] = new Map()
+
+// `tools` on the platform, with `workspace` as the Workspace and `home` as the Home.
 const mounted = (
   tools: Layer.Layer<
     Handlers,
     never,
-    ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
+    | Catalog
+    | ChildProcessSpawner.ChildProcessSpawner
+    | FileSystem.FileSystem
+    | Home
+    | Path.Path
+    | Workspace
   >,
   workspace: string,
-): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> =>
+  home: Option.Option<string> = Option.none(),
+): Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace> =>
   tools.pipe(
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(Layer.succeed(Workspace, workspace)),
+    Layer.provide(Layer.succeed(Home, home)),
+    Layer.provideMerge(Layer.succeed(Catalog, withoutSkills)),
+  )
+
+/**
+ * The home directory a configuration names, through the port's own layer: a test keeps
+ * its case in terms of HOME, and the port's answer — never HOME itself — is what the
+ * Gate is handed.
+ */
+export const homeFrom = (
+  env: Readonly<Record<string, string>>,
+): Effect.Effect<Option.Option<string>> =>
+  Home.pipe(
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+    Effect.provide(
+      Home.layer.pipe(
+        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
+      ),
+    ),
   )
 
 /**
@@ -56,8 +91,9 @@ const mounted = (
 export const judged = (
   workspace: string,
   judge: Layer.Layer<Judge>,
-): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> =>
-  mounted(handlers.pipe(Layer.provide(judge)), workspace)
+  home: Option.Option<string> = Option.none(),
+): Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace> =>
+  mounted(handlers.pipe(Layer.provide(judge)), workspace, home)
 
 // Hooks are read where the toolkit layer is built, so they go in under it. A test that
 // passes none gets `handlers`, the very layer the agent mounts, so every test entry point
@@ -69,17 +105,19 @@ export const judged = (
 export const services = (
   workspace: string,
   hooks?: Hooks,
-): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> =>
+  home: Option.Option<string> = Option.none(),
+): Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace> =>
   hooks === undefined
-    ? judged(workspace, allowing)
-    : mounted(toolkitLayer.pipe(Layer.provide(Layer.succeed(Hooks, hooks))), workspace)
+    ? judged(workspace, allowing, home)
+    : mounted(toolkitLayer.pipe(Layer.provide(Layer.succeed(Hooks, hooks))), workspace, home)
 
 // The toolkit with nothing provided at the seam, so what the tools run through is the
 // reference's own default. The agent never builds this — `handlers` always puts the Gate
 // there — so the one test that shows what the empty seam does is the only way to it.
 export const unhooked = (
   workspace: string,
-): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> => mounted(toolkitLayer, workspace)
+): Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace> =>
+  mounted(toolkitLayer, workspace)
 
 export const onDisk = <A>(effect: Effect.Effect<A, never, FileSystem.FileSystem>): Promise<A> =>
   // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
@@ -110,6 +148,11 @@ export const removeTree = (path: string): Promise<void> =>
 
 export const write = (path: string, content: string | Uint8Array): Promise<void> =>
   Fs.mkdir(NodePath.dirname(path), { recursive: true }).then(() => Fs.writeFile(path, content))
+
+// A Skill folder kept elsewhere and linked into the skills directory: the link is what
+// the catalog finds, and reading through it reaches the folder it names.
+export const symlink = (target: string, link: string): Promise<void> =>
+  Fs.mkdir(NodePath.dirname(link), { recursive: true }).then(() => Fs.symlink(target, link))
 
 // What a program's outcome looks like when it is printed rather than inspected:
 // a failure renders as its Cause with the errors' fields expanded, so a test can
@@ -301,18 +344,21 @@ export const brokenModel = (
 // The tools' answers from cans: every tool that touches the machine states a success as
 // one string, so a can is a string, and what one tool's answer says against another's is
 // nothing the loop can see. `write_plan` touches nothing, so it needs no can: its real
-// handler runs, storing into whatever holder of the Plan is around the call. A test that
-// wants an act refused, or a tool to fail on its own, plays that in the hooks a can runs
-// behind — the seam takes the failure as the tool's own, whether it stood in for one of
-// the Gates or nothing at all.
-const canned = toolkit.of({
-  bash: () => Effect.succeed('exit 0\nhi'),
-  edit_file: () => Effect.succeed('the file is the way the edit left it'),
-  glob: () => Effect.succeed('kept.txt'),
-  read_file: () => Effect.succeed('kept'),
-  write_file: () => Effect.succeed('wrote 4 bytes'),
-  write_plan: WritePlan.handler,
-})
+// handler runs, storing into whatever holder of the Plan is around the call. `load_skill`
+// is the same: its real handler serves the in-memory Catalog the harness provides, so a
+// test's Catalog is the one a load reads. A test that wants an act refused, or a tool to
+// fail on its own, plays that in the hooks a can runs behind — the seam takes the failure
+// as the tool's own, whether it stood in for one of the Gates or nothing at all.
+const canned = (catalog: ReadonlyMap<string, Skill>) =>
+  toolkit.of({
+    bash: () => Effect.succeed('exit 0\nhi'),
+    edit_file: () => Effect.succeed('the file is the way the edit left it'),
+    glob: () => Effect.succeed('kept.txt'),
+    load_skill: LoadSkill.serving(catalog),
+    read_file: () => Effect.succeed('kept'),
+    write_file: () => Effect.succeed('wrote 4 bytes'),
+    write_plan: WritePlan.handler,
+  })
 
 /**
  * The tools answering from cans, the model the one given — `scriptedModel` for a script,
@@ -320,14 +366,18 @@ const canned = toolkit.of({
  * file read or written, no git walked, no command run. The one entry point a test has
  * into the agent with no infrastructure under it, so everything the loop does is said by
  * the model's script and answered by the cans — and the code it covers can live under
- * the unit gate's mutation run.
+ * the unit gate's mutation run. `catalog` is the in-memory Catalog `load_skill` serves,
+ * no Skills unless a test says otherwise, so a load never touches the workspace's own.
  */
 export const rehearsed = (
   model: Layer.Layer<LanguageModel.LanguageModel>,
   requests: ReadonlyArray<string>,
   hooks: Hooks = {},
   answers: Partial<{ readonly [Name in keyof Tools]: Handler<Name> }> = {},
+  catalog: ReadonlyMap<string, Skill> = withoutSkills,
 ): Effect.Effect<Array<Activity>> => {
+  const cans = canned(catalog)
+
   const program = Effect.gen(function* () {
     const kit = yield* toolkit
     const conversation = yield* Chat.fromPrompt(Prompt.empty)
@@ -348,16 +398,19 @@ export const rehearsed = (
     Effect.provide(
       Layer.mergeAll(
         model,
-        toolkit.toLayer(
-          toolkit.of({
-            bash: before(hooks, 'bash', answers.bash ?? canned.bash),
-            edit_file: before(hooks, 'edit_file', answers.edit_file ?? canned.edit_file),
-            glob: before(hooks, 'glob', answers.glob ?? canned.glob),
-            read_file: before(hooks, 'read_file', answers.read_file ?? canned.read_file),
-            write_file: before(hooks, 'write_file', answers.write_file ?? canned.write_file),
-            write_plan: before(hooks, 'write_plan', answers.write_plan ?? canned.write_plan),
-          }),
-        ),
+        toolkit
+          .toLayer(
+            toolkit.of({
+              bash: before(hooks, 'bash', answers.bash ?? cans.bash),
+              edit_file: before(hooks, 'edit_file', answers.edit_file ?? cans.edit_file),
+              glob: before(hooks, 'glob', answers.glob ?? cans.glob),
+              load_skill: before(hooks, 'load_skill', answers.load_skill ?? cans.load_skill),
+              read_file: before(hooks, 'read_file', answers.read_file ?? cans.read_file),
+              write_file: before(hooks, 'write_file', answers.write_file ?? cans.write_file),
+              write_plan: before(hooks, 'write_plan', answers.write_plan ?? cans.write_plan),
+            }),
+          )
+          .pipe(Layer.provideMerge(Layer.succeed(Catalog, catalog))),
       ),
     ),
   )
@@ -374,7 +427,7 @@ export const rehearsed = (
 export const sessioned = (
   model: Layer.Layer<LanguageModel.LanguageModel>,
   requests: ReadonlyArray<string>,
-  tools: Layer.Layer<NodeServices.NodeServices | Handlers | Workspace>,
+  tools: Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace>,
 ): Effect.Effect<Array<Activity>, InstructionsUnreadable> => {
   const program = Effect.gen(function* () {
     const agent = yield* Session

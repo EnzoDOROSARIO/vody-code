@@ -73,9 +73,9 @@ What a Skill says is never a Request — see ADR 0001.
 _Avoid_: Plugin, command, recipe, playbook
 
 **Catalog**:
-The name and description of every Skill the agent may load, told to the model as the
-session begins and unchanged until it ends. A Skill its author kept for you alone to
-call is never in it.
+Every Skill the agent may load, read once at startup: its name, description, body and
+folder, told to the model as the session begins and unchanged until it ends. A Skill its
+author kept for you alone to call is never in it.
 _Avoid_: Index, registry, skill list, manifest
 
 ### The screen

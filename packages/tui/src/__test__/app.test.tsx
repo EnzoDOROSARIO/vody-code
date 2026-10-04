@@ -102,6 +102,30 @@ it('a Plan write is one row per Step', () => {
   expect(bare(state).slice(0, 3)).toEqual(['', '[ ] one', '[>] two'])
 })
 
+// A Skill load is announced by name and nothing else: the instructions it returns are
+// for the model, so the screen shows one row for the call. A load that found no Skill
+// is a result line like any other tool's, naming the tool and the reason it gave.
+it('a Skill load is one row naming the Skill, and a failed one says why', () => {
+  const state = screen(
+    {
+      lines: [
+        { source: 'call', text: 'skill tdd' },
+        {
+          source: 'result',
+          text: 'load_skill failed: There is no Skill named "missing". The Catalog holds: tdd',
+        },
+      ],
+    },
+    { columns: 80, rows: 10 },
+  )
+
+  expect(bare(state).slice(0, 3)).toEqual([
+    '',
+    'skill tdd',
+    'load_skill failed: There is no Skill named "missing". The Catalog holds: tdd',
+  ])
+})
+
 // Only the agent writes markdown. What you typed is shown back exactly as typed, and a
 // tool's output is already the text some other program chose.
 it('the agent is read as markdown, and nobody else is', () => {

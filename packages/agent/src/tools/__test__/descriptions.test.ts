@@ -33,6 +33,11 @@ it('the tools describe themselves to the model in these words', () => {
       'gitignored is skipped, along with .git, node_modules and dist — unless the pattern names one',
       'of those directly.',
     ].join(' '),
+    load_skill: [
+      'Load a Skill from the Catalog: pass the `name` the Catalog listed it under, and the result',
+      "is the Skill's instructions, under the absolute path of the folder holding it. To read any",
+      'other file in that folder, when the instructions send you there, use read_file with that path.',
+    ].join(' '),
     read_file: [
       'Read file contents. Each line is prefixed with its number and an arrow, as in `     1→text`;',
       'that prefix is not part of the file, so never copy it into edit_file. Reads from `offset`',

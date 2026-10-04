@@ -1,9 +1,12 @@
-import { Effect, FileSystem, Option, Path, Predicate, Schema } from 'effect'
+import { Effect, FileSystem, Option, Path, Schema } from 'effect'
 
-import type { PlatformError } from 'effect'
 import { Chat, Prompt } from 'effect/ai'
 
-import { Workspace } from '#workspace.ts'
+import { absent } from './absent.ts'
+import { Catalog, byName } from './catalog.ts'
+import { Workspace } from './workspace.ts'
+
+import type { Skill } from './catalog.ts'
 
 // Best first. A workspace carrying both has renamed its instructions and kept the old
 // name for another agent, so the two say the same thing — and a `CLAUDE.md` symlinked
@@ -17,7 +20,7 @@ export class InstructionsUnreadable extends Schema.TaggedError<InstructionsUnrea
   'InstructionsUnreadable',
   { path: Schema.String, reason: Schema.String },
 ) {
-  // This is the one error in the package that reaches a terminal rather than the model,
+  // One of the two errors in the package that reach a terminal rather than the model,
   // and `NodeRuntime.runMain` prints only `cause.message`. Without this the session
   // refuses to start and says nothing about which file, or what went wrong with it.
   override get message(): string {
@@ -30,9 +33,6 @@ export type Instructions = {
   readonly path: string
   readonly text: string
 }
-
-const absent = (error: PlatformError.PlatformError): boolean =>
-  Predicate.isTagged(error.reason, 'NotFound')
 
 // Read rather than ask and then read: one syscall, no gap between the two for the file
 // to change in, and a directory named `AGENTS.md` arrives as the failure it is.
@@ -86,22 +86,54 @@ const standing = (workspace: string): string =>
 const quoted = ({ path, text }: Instructions): string =>
   `<project_instructions path="${path}">\n${text}\n</project_instructions>`
 
-const systemPrompt = (workspace: string, instructions: Option.Option<Instructions>): string =>
-  Option.match(instructions, {
-    onNone: () => standing(workspace),
-    onSome: (found) => [standing(workspace), quoted(found)].join('\n\n'),
+// The Catalog is told to the model under a tag of its own, after the standing
+// instructions and the workspace's own words: what a Skill is, how to load one and
+// where its other files are read from, then one line per Skill — the name it is loaded
+// by and what it is for, in a stable order so the same Skills give the same prompt.
+const skills = (catalog: ReadonlyMap<string, Skill>): string =>
+  [
+    '<skills>',
+    'A Skill is a folder of instructions for one kind of work, named and described by the SKILL.md at its top.',
+    "Before you start the work a Skill covers, load it with load_skill, passing its name. The load returns the Skill's instructions and the absolute path of its folder; when those instructions send you to another file in the folder, read it with read_file.",
+    'These are the Skills available to you:',
+    [...catalog.entries()]
+      .toSorted(([left], [right]) => byName(left, right))
+      .map(([name, { description }]) => `- ${name}: ${description}`)
+      .join('\n'),
+    '</skills>',
+  ].join('\n')
+
+const systemPrompt = (
+  workspace: string,
+  instructions: Option.Option<Instructions>,
+  catalog: ReadonlyMap<string, Skill>,
+): string => {
+  const parts = Option.match(instructions, {
+    onNone: () => [standing(workspace)],
+    onSome: (found) => [standing(workspace), quoted(found)],
   })
+
+  // With no Skills the prompt is exactly what it is today: no section, and no separator
+  // for one that is not there.
+  if (catalog.size > 0) {
+    parts.push(skills(catalog))
+  }
+
+  return parts.join('\n\n')
+}
 
 export const chat: Effect.Effect<
   Chat.Chat,
   InstructionsUnreadable,
-  FileSystem.FileSystem | Path.Path | Workspace
+  Catalog | FileSystem.FileSystem | Path.Path | Workspace
 > = Effect.gen(function* () {
   const workspace = yield* Workspace
 
   const instructions = yield* projectInstructions
 
+  const catalog = yield* Catalog
+
   return yield* Chat.fromPrompt(
-    Prompt.empty.pipe(Prompt.setSystem(systemPrompt(workspace, instructions))),
+    Prompt.empty.pipe(Prompt.setSystem(systemPrompt(workspace, instructions, catalog))),
   )
 })
