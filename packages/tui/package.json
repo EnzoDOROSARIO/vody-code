@@ -27,7 +27,8 @@
     "ink": "7.1.1",
     "marked": "18.0.13",
     "react": "19.3.0",
-    "string-width": "8.2.2"
+    "string-width": "8.2.2",
+    "wrap-ansi": "10.0.2"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
