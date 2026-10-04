@@ -46,5 +46,14 @@ it('the tools describe themselves to the model in these words', () => {
       'read that was cut short by offset, limit or the character budget does not count. To change',
       'part of a file, prefer edit_file, which needs no prior read.',
     ].join(' '),
+    write_plan: [
+      'Write your Plan for the work in hand: `steps` in order, each with the text of the work and',
+      'a status — pending, in_progress, or completed. Write it when the work takes several Steps,',
+      'not for a single action, and write it again as the work goes: mark a Step in_progress',
+      'before you start it, completed as soon as it is done, and leave out a Step you dropped,',
+      'because completed means the work was done. Each write replaces the whole Plan, and writing',
+      'no Steps clears it. At most one Step may be in_progress at a time, a Step whose text is',
+      'empty or whitespace only is refused, and a Plan holds at most 20 Steps.',
+    ].join(' '),
   })
 })

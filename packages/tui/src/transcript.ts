@@ -2,14 +2,25 @@ import { Predicate } from 'effect'
 
 import { casesHandled } from './defects.ts'
 
-import type { Activity, Breakdown, Impasse, ToolCall, ToolFailure, ToolResult } from 'agent'
+import type {
+  Activity,
+  Breakdown,
+  Impasse,
+  Reminder,
+  Step,
+  ToolCall,
+  ToolFailure,
+  ToolResult,
+} from 'agent'
 
 /**
  * Who put a line in the transcript, which is all its styling depends on. `loop` is the
  * agent too, but the turn loop speaking rather than the model: the Turn is over, and not
- * because the model had finished — an Impasse, or a Breakdown.
+ * because the model had finished — an Impasse, or a Breakdown. A `reminder` is the loop
+ * speaking mid-Turn as well, but it is not an ending: the Plan, put back in front of the
+ * agent.
  */
-export type Source = 'agent' | 'call' | 'loop' | 'result' | 'you'
+export type Source = 'agent' | 'call' | 'loop' | 'reminder' | 'result' | 'you'
 
 /**
  * One line of the transcript.
@@ -26,6 +37,21 @@ export type Line = {
 
 const PREVIEW_CHARACTERS = 200
 
+// How a Step reads at a glance in the Plan block: its status, as one mark.
+const marks = {
+  completed: '[x]',
+  in_progress: '[>]',
+  pending: '[ ]',
+} satisfies { readonly [Status in Step['status']]: string }
+
+// A Plan write is the Plan itself, so it is announced as its Steps, one per line, each
+// behind the mark its status earns. A write with no Steps is the Plan being cleared,
+// which would otherwise be invisible.
+const drawn = (steps: ReadonlyArray<Step>): string =>
+  steps.length === 0
+    ? 'The Plan was cleared'
+    : steps.map((step) => `${marks[step.status]} ${step.text}`).join('\n')
+
 // The agent reports that it called `bash` with a command; saying that back as a
 // shell prompt is the Transcript's business, and every tool gets the phrasing that
 // suits it. Adding a tool to the agent lands here as a missing branch.
@@ -41,6 +67,8 @@ const asked = (call: ToolCall): string => {
       return `read ${call.params.path}`
     case 'write_file':
       return `write ${call.params.path}`
+    case 'write_plan':
+      return drawn(call.params.steps)
     // Stryker disable next-line ConditionalExpression: every ToolCall has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
     default:
       return casesHandled(call)
@@ -90,6 +118,12 @@ const stopped = (impasse: Impasse): string =>
 const broke = (breakdown: Breakdown): string =>
   ended(`the model broke down — ${breakdown.reason}`, 'Ask again')
 
+// A Reminder is the loop speaking mid-Turn, and it says so before restating the Plan it
+// put back in front of the agent: the same Steps, behind the same marks, that a Plan
+// write shows.
+const reminded = (reminder: Reminder): string =>
+  `The agent was reminded of its Plan:\n${drawn(reminder.steps)}`
+
 /** One Activity as the Transcript says it, or nothing when the screen declines it. */
 export const transcribe = (activity: Activity): Line | undefined => {
   switch (activity.type) {
@@ -103,6 +137,8 @@ export const transcribe = (activity: Activity): Line | undefined => {
       return shown === undefined ? undefined : { source: 'result', text: shown }
     }
 
+    case 'reminder':
+      return { source: 'reminder', text: reminded(activity) }
     case 'impasse':
       return { source: 'loop', text: stopped(activity) }
     case 'breakdown':

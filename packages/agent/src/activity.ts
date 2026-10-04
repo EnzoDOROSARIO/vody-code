@@ -4,6 +4,7 @@ import type { Response } from 'effect/unstable/ai'
 
 import { toolkit } from './tools/index.ts'
 
+import type { Step } from './tools/plan.ts'
 import type { Tools } from './tools/index.ts'
 
 // A streamed tool call carries its arguments as the JSON the model sent, which the
@@ -36,6 +37,7 @@ export const ToolCall = Schema.Union([
   callTo('glob', toolkit.tools.glob.parametersSchema),
   callTo('read_file', toolkit.tools.read_file.parametersSchema),
   callTo('write_file', toolkit.tools.write_file.parametersSchema),
+  callTo('write_plan', toolkit.tools.write_plan.parametersSchema),
 ])
 
 /** A tool the model reached for, with its arguments parsed back into the tool's own types. */
@@ -86,8 +88,21 @@ export type Breakdown = {
   readonly type: 'breakdown'
 }
 
+/**
+ * The Reminder: the Plan as it stands, put back in front of the model by the loop when
+ * the model wrote it earlier in this Turn and has gone on working without writing it
+ * again while Steps remain. It carries the Steps it restated as data, not the words sent
+ * to the model — those are the loop's business — and unlike an Impasse or a Breakdown it
+ * is not an ending: the Turn goes on after it.
+ */
+export type Reminder = {
+  readonly steps: ReadonlyArray<Step>
+  readonly type: 'reminder'
+}
+
 // One thing that happened on the way to the end of a Turn: something the agent did, or
-// the loop's own report that the Turn is over — an Impasse, or a Breakdown. Every one of
-// these is a report of what happened, never a rendering of it: the agent writes to no
-// screen, and whoever is watching decides how, and whether, each is shown.
-export type Activity = Breakdown | Impasse | Reply | ToolCall | ToolResult
+// the loop's own report — a Reminder, or one of the two ways a Turn ends, an Impasse or
+// a Breakdown. Every one of these is a report of what happened, never a rendering of it:
+// the agent writes to no screen, and whoever is watching decides how, and whether, each
+// is shown.
+export type Activity = Breakdown | Impasse | Reminder | Reply | ToolCall | ToolResult

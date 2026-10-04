@@ -39,6 +39,7 @@ export const layer: Layer.Layer<
       glob: undefined,
       read_file: undefined,
       write_file: writes.write_file,
+      write_plan: undefined,
     } satisfies { readonly [Name in keyof Tools]: Hook<Name> | undefined }
   }),
 ).pipe(Layer.provide(Perimeter.layer))

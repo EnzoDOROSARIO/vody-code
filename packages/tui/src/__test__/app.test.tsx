@@ -1,7 +1,7 @@
 import { expect, it } from '@effect/vitest'
 
 import { ScreenView } from '#app.tsx'
-import { BOLD, CYAN, DIM, GREY_BACKGROUND, colourful, plain, screen } from './testing.ts'
+import { BOLD, CYAN, DIM, GREY_BACKGROUND, ITALIC, colourful, plain, screen } from './testing.ts'
 
 import type { Screen } from '#frame.ts'
 
@@ -75,6 +75,14 @@ it('the seam above the Composer is blank, never a slab', () => {
   expect(lines.at(-3)).toContain('┌')
 })
 
+// A Plan write is the Plan itself: the call's block is one row per Step, each behind
+// the mark its status earns, so the whole Plan reads at a glance.
+it('a Plan write is one row per Step', () => {
+  const state = screen({ lines: [{ source: 'call', text: '[ ] one\n[>] two' }] }, VIEWPORT)
+
+  expect(bare(state).slice(0, 3)).toEqual(['', '[ ] one', '[>] two'])
+})
+
 // Only the agent writes markdown. What you typed is shown back exactly as typed, and a
 // tool's output is already the text some other program chose.
 it('the agent is read as markdown, and nobody else is', () => {
@@ -146,4 +154,24 @@ it('a Breakdown stands out the way an Impasse does', () => {
   expect(lines[1]).toContain(BOLD)
   expect(lines[1]).not.toContain(GREY_BACKGROUND)
   expect(plain(<ScreenView screen={state} />, WIDE.columns).split('\n')[1]).toBe(BROKE)
+})
+
+// The loop says two things now, and they read differently: a Reminder is the loop
+// mid-Turn, so it is set in italic, where an Impasse or a Breakdown is the loop's last
+// word and stays bold. Neither wears a tool's grey.
+const REMINDER = 'The agent was reminded of its Plan:\n[ ] read the code'
+
+it('a Reminder is set in italic, not the bold of a Turn ending', () => {
+  const state = screen({ lines: [{ source: 'reminder', text: REMINDER }] }, WIDE)
+
+  const lines = colourful(<ScreenView screen={state} />, WIDE.columns).split('\n')
+
+  expect(lines[0]).toContain(ITALIC)
+  expect(lines[0]).not.toContain(BOLD)
+  expect(lines[0]).not.toContain(GREY_BACKGROUND)
+  expect(
+    plain(<ScreenView screen={state} />, WIDE.columns)
+      .split('\n')
+      .slice(0, 2),
+  ).toEqual(['The agent was reminded of its Plan:', '[ ] read the code'])
 })

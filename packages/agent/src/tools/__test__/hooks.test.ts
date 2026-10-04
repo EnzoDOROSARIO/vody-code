@@ -120,9 +120,22 @@ it.live('every tool passes through the seam on its way in', () =>
             yield* tools.handle('read_file', { path: 'inside/keep.txt', offset: 1 }),
           )
 
+          yield* Stream.runDrain(
+            yield* tools.handle('write_plan', {
+              steps: [{ status: 'pending', text: 'Write the Plan' }],
+            }),
+          )
+
           return yield* tools.handle('write_file', { path: 'new.txt', content: 'hello' })
         }),
-      { bash: record, edit_file: record, glob: record, read_file: record, write_file: record },
+      {
+        bash: record,
+        edit_file: record,
+        glob: record,
+        read_file: record,
+        write_file: record,
+        write_plan: record,
+      },
     )
 
     expect(yield* Ref.get(seen)).toEqual([
@@ -133,6 +146,7 @@ it.live('every tool passes through the seam on its way in', () =>
       },
       { name: 'glob', params: { pattern: '**/*.txt' } },
       { name: 'read_file', params: { path: 'inside/keep.txt', offset: 1 } },
+      { name: 'write_plan', params: { steps: [{ status: 'pending', text: 'Write the Plan' }] } },
       { name: 'write_file', params: { path: 'new.txt', content: 'hello' } },
     ])
   }),

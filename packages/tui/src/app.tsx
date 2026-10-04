@@ -26,6 +26,11 @@ const Painted = ({ row }: { readonly row: Row }): ReactElement => {
       // reads as neither the model talking nor a tool's output.
       return <Text bold>{text}</Text>
 
+    case 'reminder':
+      // The loop speaking before the Turn is over: italic, so it does not read as the
+      // bold last word on a Turn that ended.
+      return <Text italic>{text}</Text>
+
     case 'call':
     case 'result':
       // A tool's output is a grey slab with dim text to sit back from the reply. The gap

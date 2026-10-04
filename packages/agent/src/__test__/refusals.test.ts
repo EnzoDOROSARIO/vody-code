@@ -46,6 +46,7 @@ const writesOutsideRefused = {
   glob: undefined,
   read_file: undefined,
   write_file: outsideRefused,
+  write_plan: undefined,
 } satisfies Play
 
 // The command Gate's answer on one question, played in full: a command the Judge reads
@@ -104,26 +105,26 @@ const search = (turn: number, slot: number): Array<Part> =>
 
 const answer: Array<Part> = [{ type: 'text-delta', id: 'text-1', delta: 'done' }]
 
-type Step = (turn: number, slot: number) => Array<Part>
+type Move = (turn: number, slot: number) => Array<Part>
 
-// A model that takes `steps` one call of the model at a time and then answers. However
+// A model that takes `moves` one call of the model at a time and then answers. However
 // long the list, it answers in the end, so a loop with no cap finishes too, just with more
 // calls in it.
 const scripted =
-  (steps: ReadonlyArray<Step>): Script =>
+  (moves: ReadonlyArray<Move>): Script =>
   (turn) =>
-    steps[turn]?.(turn, 0) ?? answer
+    moves[turn]?.(turn, 0) ?? answer
 
-// One step that reaches for several tools at once, as a model does when it asks for them
+// One move that reaches for several tools at once, as a model does when it asks for them
 // in parallel: the tools run concurrently, and their results come back in whatever order
 // they finish.
 const together =
-  (...steps: ReadonlyArray<Step>): Step =>
+  (...moves: ReadonlyArray<Move>): Move =>
   (turn) =>
-    steps.flatMap((step, slot) => step(turn, slot))
+    moves.flatMap((move, slot) => move(turn, slot))
 
-const repeated = (step: Step, times: number): ReadonlyArray<Step> =>
-  Array.from({ length: times }, () => step)
+const repeated = (move: Move, times: number): ReadonlyArray<Move> =>
+  Array.from({ length: times }, () => move)
 
 // An edit whose old text is simply not in the file: what a real edit_file says when
 // nothing matches, which is the tool's mistake and not any Gate's answer. Played the
@@ -136,12 +137,12 @@ const noMatch: Handler<'edit_file'> = ({ old_text: sought, path: target }) =>
     : Effect.fail(new TextNotFound({ path: target, reason: 'nothing matches it' }))
 
 const talk = (
-  steps: ReadonlyArray<Step>,
+  moves: ReadonlyArray<Move>,
   hooks: Hooks = {},
   requests: ReadonlyArray<string> = ['tidy up'],
   answers: Partial<{ readonly [Name in keyof Tools]: Handler<Name> }> = {},
 ): Effect.Effect<Array<Activity>> =>
-  rehearsed(scriptedModel(scripted(steps)), requests, hooks, answers)
+  rehearsed(scriptedModel(scripted(moves)), requests, hooks, answers)
 
 const calls = (activities: ReadonlyArray<Activity>): number =>
   activities.filter((activity) => activity.type === 'tool-call').length

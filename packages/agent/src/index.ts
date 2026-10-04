@@ -43,6 +43,7 @@ export type {
   Activity,
   Breakdown,
   Impasse,
+  Reminder,
   Reply,
   ToolCall,
   ToolFailure,
@@ -50,6 +51,10 @@ export type {
 } from './activity.ts'
 
 export type { Handlers, Tools } from './tools/index.ts'
+
+// One Step of a Plan, as a `write_plan` call carries it: the screen renders them, and
+// the words Plan and Step mean what the glossary says.
+export type { Step } from './tools/plan.ts'
 
 /**
  * The handlers the agent runs, with both Gates in front of them. The Gates go in

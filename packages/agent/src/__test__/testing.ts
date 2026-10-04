@@ -25,6 +25,7 @@ import { answer } from '#turn.ts'
 import { Session, handlers } from '#index.ts'
 import { before } from '#tools/hooks.ts'
 import { Hooks, toolkit, toolkitLayer } from '#tools/index.ts'
+import * as WritePlan from '#tools/write-plan.ts'
 import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
@@ -245,13 +246,20 @@ export const outside = (root: string): string => `${root.slice(0, root.lastIndex
  * of the turn number: turn 0 is the answer to the first Request, turn 1 to whatever
  * follows it, and so on. A turn whose parts carry no `tool-call` ends that Request's
  * Turn; one with a `tool-call` sends the loop round again, to the next turn.
+ *
+ * The assembled prompt that call was sent comes with it — the history so far, with
+ * whatever the loop added for this call after it — so a script that wants to see what
+ * the loop said to the model reads it there; one that does not can take the turn alone.
  */
-export type Script = (turn: number) => Array<Response.StreamPartEncoded>
+export type Script = (turn: number, prompt: Prompt.Prompt) => Array<Response.StreamPartEncoded>
 
 // The highest seam in the package: the model itself, replaced by a script. Nothing
 // below it is substituted, so the tools run for real against the workspace.
 const scriptedLanguageModel = (
-  streamText: (turn: number) => Stream.Stream<Response.StreamPartEncoded, AiError.AiError>,
+  streamText: (
+    turn: number,
+    prompt: Prompt.Prompt,
+  ) => Stream.Stream<Response.StreamPartEncoded, AiError.AiError>,
 ): Layer.Layer<LanguageModel.LanguageModel> =>
   Layer.effect(
     LanguageModel.LanguageModel,
@@ -260,11 +268,11 @@ const scriptedLanguageModel = (
 
       return yield* LanguageModel.make({
         generateText: () => Effect.succeed([]),
-        streamText: () =>
+        streamText: (options) =>
           Stream.unwrap(
             Effect.map(
               Ref.getAndUpdate(turns, (turn) => turn + 1),
-              streamText,
+              (turn) => streamText(turn, options.prompt),
             ),
           ),
       })
@@ -272,7 +280,7 @@ const scriptedLanguageModel = (
   )
 
 export const scriptedModel = (script: Script): Layer.Layer<LanguageModel.LanguageModel> =>
-  scriptedLanguageModel((turn) => Stream.fromIterable(script(turn)))
+  scriptedLanguageModel((turn, prompt) => Stream.fromIterable(script(turn, prompt)))
 
 /**
  * The scripted model with the call on one turn broken: the call itself fails the way a
@@ -286,21 +294,24 @@ export const brokenModel = (
   broken: number,
   failure: AiError.AiError,
 ): Layer.Layer<LanguageModel.LanguageModel> =>
-  scriptedLanguageModel((turn) =>
-    turn === broken ? Stream.fail(failure) : Stream.fromIterable(script(turn)),
+  scriptedLanguageModel((turn, prompt) =>
+    turn === broken ? Stream.fail(failure) : Stream.fromIterable(script(turn, prompt)),
   )
 
-// The tools' answers from cans: every tool states a success as one string, so a can is
-// a string, and what one tool's answer says against another's is nothing the loop can
-// see. A test that wants an act refused, or a tool to fail on its own, plays that in the
-// hooks a can runs behind — the seam takes the failure as the tool's own, whether it
-// stood in for one of the Gates or nothing at all.
+// The tools' answers from cans: every tool that touches the machine states a success as
+// one string, so a can is a string, and what one tool's answer says against another's is
+// nothing the loop can see. `write_plan` touches nothing, so it needs no can: its real
+// handler runs, storing into whatever holder of the Plan is around the call. A test that
+// wants an act refused, or a tool to fail on its own, plays that in the hooks a can runs
+// behind — the seam takes the failure as the tool's own, whether it stood in for one of
+// the Gates or nothing at all.
 const canned = toolkit.of({
   bash: () => Effect.succeed('exit 0\nhi'),
   edit_file: () => Effect.succeed('the file is the way the edit left it'),
   glob: () => Effect.succeed('kept.txt'),
   read_file: () => Effect.succeed('kept'),
   write_file: () => Effect.succeed('wrote 4 bytes'),
+  write_plan: WritePlan.handler,
 })
 
 /**
@@ -344,6 +355,7 @@ export const rehearsed = (
             glob: before(hooks, 'glob', answers.glob ?? canned.glob),
             read_file: before(hooks, 'read_file', answers.read_file ?? canned.read_file),
             write_file: before(hooks, 'write_file', answers.write_file ?? canned.write_file),
+            write_plan: before(hooks, 'write_plan', answers.write_plan ?? canned.write_plan),
           }),
         ),
       ),

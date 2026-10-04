@@ -12,6 +12,7 @@ import { before, Hooks } from './hooks.ts'
 import * as ReadFile from './read-file.ts'
 import { toolkit } from './toolkit.ts'
 import * as WriteFile from './write-file.ts'
+import * as WritePlan from './write-plan.ts'
 
 import type { Tools } from './toolkit.ts'
 import type { Workspace } from '#workspace.ts'
@@ -69,6 +70,9 @@ export const toolkitLayer: Layer.Layer<
         glob: before(hooks, 'glob', glob.glob),
         read_file: before(hooks, 'read_file', readFile.read_file),
         write_file: before(hooks, 'write_file', writeFile.write_file),
+        // The Plan acts on nothing on the machine, so no Gate stands in front of it; it
+        // still passes through the seam, where nothing is at it.
+        write_plan: before(hooks, 'write_plan', WritePlan.handler),
       })
     }),
   )

@@ -137,6 +137,7 @@ const rowsOf = (line: Line, columns: number): ReadonlyArray<Row> => {
     }
 
     case 'loop':
+    case 'reminder':
     case 'result':
     case 'you':
       return wrapped(line.text, columns).map((text) => ({ source: line.source, text }))
