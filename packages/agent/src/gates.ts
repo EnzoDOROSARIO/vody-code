@@ -38,6 +38,7 @@ export const layer: Layer.Layer<
       bash,
       edit_file: writes.edit_file,
       glob: undefined,
+      load_skill: undefined,
       read_file: undefined,
       write_file: writes.write_file,
       write_plan: undefined,

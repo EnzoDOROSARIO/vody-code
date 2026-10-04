@@ -37,6 +37,7 @@ export default defineConfig({
       // and the Verdict a Gate derives, all in memory. The Plan joins them: the holder is
       // a Ref in memory and `write_plan` runs its real handler.
       'packages/agent/src/__test__/index.test.ts',
+      'packages/agent/src/__test__/load-skill.test.ts',
       'packages/agent/src/__test__/plan.test.ts',
       'packages/agent/src/__test__/refusals.test.ts',
       'packages/agent/src/__test__/request.test.ts',

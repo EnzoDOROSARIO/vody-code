@@ -91,8 +91,9 @@ const quoted = ({ path, text }: Instructions): string =>
 
 // The Catalog is told to the model under a tag of its own, after the standing
 // instructions and the workspace's own words: one line per Skill, the name it is loaded
-// by and what it is for, in a stable order so the same Skills give the same prompt.
-// Ticket #29 amends this wording when `load_skill` arrives.
+// by and what it is for, in a stable order so the same Skills give the same prompt. The
+// section also says how to load one — `load_skill` by name, before the work it covers —
+// and that the folder a load names is where the Skill's other files are read from.
 const skills = (catalog: ReadonlyMap<string, Skill>): string =>
   [
     '<skills>',
@@ -101,6 +102,7 @@ const skills = (catalog: ReadonlyMap<string, Skill>): string =>
       .toSorted(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
       .map(([name, { description }]) => `- ${name}: ${description}`)
       .join('\n'),
+    "Before you start the work a Skill covers, load it with load_skill, passing the name above. The load returns the Skill's instructions and the absolute path of its folder; when those instructions send you to another file in the folder, read it with read_file.",
     '</skills>',
   ].join('\n')
 

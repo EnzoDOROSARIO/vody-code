@@ -9,6 +9,7 @@ import * as EditFile from './edit-file.ts'
 import { Files } from './files.ts'
 import * as Glob from './glob.ts'
 import { before, Hooks } from './hooks.ts'
+import * as LoadSkill from './load-skill.ts'
 import * as ReadFile from './read-file.ts'
 import { toolkit } from './toolkit.ts'
 import * as WriteFile from './write-file.ts'
@@ -26,6 +27,8 @@ export { TextNotFound, TextNotUnique } from './edit-file.ts'
 export { FileSystemRefused } from './errors.ts'
 
 export { Hooks } from './hooks.ts'
+
+export { SkillNotFound } from './load-skill.ts'
 
 export { FileIsBinary } from './read-file.ts'
 
@@ -73,6 +76,9 @@ export const toolkitLayer: Layer.Layer<
         // The Plan acts on nothing on the machine, so no Gate stands in front of it; it
         // still passes through the seam, where nothing is at it.
         write_plan: before(hooks, 'write_plan', WritePlan.handler),
+        // A load serves the Catalog's startup copy and touches nothing, so no Gate
+        // stands in front of it either; it passes through the same empty seam.
+        load_skill: before(hooks, 'load_skill', LoadSkill.handler),
       })
     }),
   )
