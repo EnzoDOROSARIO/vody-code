@@ -14,6 +14,8 @@ export const DIM = '\u001B[2m'
 
 export const ITALIC = '\u001B[3m'
 
+export const INVERSE = '\u001B[7m'
+
 export const UNDERLINE = '\u001B[4m'
 
 export const STRIKETHROUGH = '\u001B[9m'
