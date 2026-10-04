@@ -5,7 +5,16 @@ import { useReducer, useState } from 'react'
 import { casesHandled } from './defects.ts'
 import { Markdown } from './markdown/index.tsx'
 
-import type { Activity, Breakdown, Impasse, Step, ToolCall, ToolFailure, ToolResult } from 'agent'
+import type {
+  Activity,
+  Breakdown,
+  Impasse,
+  Reminder,
+  Step,
+  ToolCall,
+  ToolFailure,
+  ToolResult,
+} from 'agent'
 import type { Key } from 'ink'
 import type { ReactElement } from 'react'
 
@@ -14,9 +23,11 @@ export type Ask = (request: string, show: (activity: Activity) => void) => Promi
 /**
  * Who put a line in the transcript, which is all its styling depends on. `loop` is the
  * agent too, but the turn loop speaking rather than the model: the Turn is over, and not
- * because the model had finished — an Impasse, or a Breakdown.
+ * because the model had finished — an Impasse, or a Breakdown. A `reminder` is the loop
+ * speaking mid-Turn as well, but it is not an ending: the Plan, put back in front of the
+ * agent.
  */
-export type Source = 'agent' | 'call' | 'loop' | 'result' | 'you'
+export type Source = 'agent' | 'call' | 'loop' | 'reminder' | 'result' | 'you'
 
 /**
  * One line of the transcript.
@@ -112,6 +123,12 @@ const stopped = (impasse: Impasse): string =>
 const broke = (breakdown: Breakdown): string =>
   ended(`the model broke down — ${breakdown.reason}`, 'Ask again')
 
+// A Reminder is the loop speaking mid-Turn, and it says so before restating the Plan it
+// put back in front of the agent: the same Steps, behind the same marks, that a Plan
+// write shows.
+const reminded = (reminder: Reminder): string =>
+  `The agent was reminded of its Plan:\n${plan(reminder.steps)}`
+
 export const transcribe = (activity: Activity): Line | undefined => {
   switch (activity.type) {
     case 'reply':
@@ -124,6 +141,8 @@ export const transcribe = (activity: Activity): Line | undefined => {
       return shown === undefined ? undefined : { source: 'result', text: shown }
     }
 
+    case 'reminder':
+      return { source: 'reminder', text: reminded(activity) }
     case 'impasse':
       return { source: 'loop', text: stopped(activity) }
     case 'breakdown':
@@ -173,6 +192,12 @@ const Entry = ({ line }: { readonly line: Line }): ReactElement => {
   // reads as neither the model talking nor a tool's output.
   if (line.source === 'loop') {
     return <Text bold>{line.text}</Text>
+  }
+
+  // A Reminder is the loop speaking too, but mid-Turn: italic sets it apart the way bold
+  // sets the endings apart, without claiming the Turn is over.
+  if (line.source === 'reminder') {
+    return <Text italic>{line.text}</Text>
   }
 
   return (
