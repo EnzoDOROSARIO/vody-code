@@ -90,7 +90,8 @@ export const ScreenView = ({ screen }: { readonly screen: Screen }): ReactElemen
 
   // The hook syncs through an insertion effect, so the cell has to be handed over during
   // render; from an effect of our own it would land a paint late.
-  // Stryker disable next-line ConditionalExpression,ObjectLiteral: the cell is handed to Ink, and a string render never reads the cursor it keeps
+  // Stryker disable next-line ConditionalExpression: the cell is handed to Ink, and a string render never reads the cursor it keeps, so the guard's choice is invisible
+  // Stryker disable next-line ObjectLiteral: the cell is handed to Ink, and a string render never reads the object it keeps, so the object's shape is invisible
   setCursorPosition(cursor === undefined ? undefined : { x: cursor.column, y: cursor.row })
 
   return (
@@ -130,7 +131,8 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   // and clamping a Held one. No string render delivers a resize, so a render at the
   // window's size comes out the same with the call or without it, which is why the rule
   // lives on the frame.
-  // Stryker disable next-line BlockStatement,CallExpression: the effect attaches to the terminal, and no test can resize one
+  // Stryker disable next-line BlockStatement: the viewport already matches the window a string render reports, so emptying the resize step changes nothing
+  // Stryker disable next-line CallExpression: the viewport already matches the window a string render reports, so dropping the effect call changes nothing
   useEffect(() => {
     step({ type: 'resize', viewport: window })
   }, [step, window])
@@ -141,7 +143,12 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   // the same unmount Ctrl+C takes. A screen without raw mode is no terminal — a string
   // render included — and writing the mode to the process's own stream from one would
   // only leak the sequences.
-  // Stryker disable ArrayDeclaration,BlockStatement,BooleanLiteral,CallExpression,ConditionalExpression,StringLiteral: the mode is set on a terminal, which no string render attaches, and such a render's stream is not one
+  // Stryker disable ArrayDeclaration: a string render mounts the effect once and never re-renders, so its dependencies are never compared
+  // Stryker disable BlockStatement: a string render has no terminal, so emptying the effect's body or its cleanup changes nothing the output carries
+  // Stryker disable BooleanLiteral: flipping the guard writes to the process's own stream, which the render's output never carries
+  // Stryker disable CallExpression: the write goes to the process's own stream, which the render's output never carries, so dropping either call is invisible
+  // Stryker disable ConditionalExpression: the guard's branch only decides whether to write to the process's own stream, which the output never carries
+  // Stryker disable StringLiteral: the sequence written goes to the process's own stream, which the render's output never carries
   useEffect(() => {
     if (!isRawModeSupported) {
       return undefined
@@ -153,7 +160,12 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
       stdout.write('\u001B[?1000l\u001B[?1006l')
     }
   }, [isRawModeSupported, stdout])
-  // Stryker restore ArrayDeclaration,BlockStatement,BooleanLiteral,CallExpression,ConditionalExpression,StringLiteral
+  // Stryker restore ArrayDeclaration
+  // Stryker restore BlockStatement
+  // Stryker restore BooleanLiteral
+  // Stryker restore CallExpression
+  // Stryker restore ConditionalExpression
+  // Stryker restore StringLiteral
 
   const show = (activity: Activity): void => {
     step({ activity, type: 'activity' })

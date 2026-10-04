@@ -1,8 +1,8 @@
 import { expect, it } from '@effect/vitest'
 import { AiError, Response } from 'effect/unstable/ai'
 
-import { unpainted } from '#__test__/testing.ts'
-import { face, send, start, transcribe, transcriptRows, view, written } from '#frame.ts'
+import { screen, unpainted } from '#__test__/testing.ts'
+import { face, send, transcribe, transcriptRows, view, written } from '#frame.ts'
 
 import { CommandRefused } from 'agent'
 
@@ -234,12 +234,6 @@ const RETURN: ScreenEvent = { chord: chord({ return: true }), input: '', type: '
 const reply = (id: string, text: string): ScreenEvent => ({
   activity: { id, text, type: 'reply' },
   type: 'activity',
-})
-
-/** The screen the key and Activity cases start from, sized like Ink's own fallback. */
-const screen = (parts: Partial<Screen> = {}): Screen => ({
-  ...start({ columns: 80, rows: 24 }),
-  ...parts,
 })
 
 /**

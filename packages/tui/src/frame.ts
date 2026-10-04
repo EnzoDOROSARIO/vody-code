@@ -1,11 +1,8 @@
-import chalk from 'chalk'
 import { Predicate } from 'effect'
 import stringWidth from 'string-width'
-import wrapAnsi from 'wrap-ansi'
 
 import { casesHandled } from './defects.ts'
-import { blocks } from './markdown/blocks.ts'
-import { BAR, INDENT } from './markdown/style.ts'
+import { layout, wrapped } from './markdown/layout.ts'
 
 import type { Activity, Breakdown, Impasse, ToolCall, ToolFailure, ToolResult } from 'agent'
 
@@ -231,63 +228,14 @@ const DOCK = 4
 /** How many rows the Transcript's window has: whatever the dock leaves, possibly none. */
 export const transcriptRows = (viewport: Viewport): number => Math.max(0, viewport.rows - DOCK)
 
-// One source line to the rows the terminal would paint for it, wrapped the way Ink wraps
-// (`ink/build/wrap-text.js`), so the frame lays the Transcript out to exactly the rows a
-// mounted Ink would have drawn. Trailing whitespace is trimmed off each row because Ink
-// trims it off every painted line; whitespace inside a styled span survives either way,
-// since the escape after it stops the trim.
-const wrapped = (text: string, width: number): ReadonlyArray<string> =>
-  wrapAnsi(text, Math.max(1, width), { hard: true, trim: false })
-    .split('\n')
-    .map((row) => row.trimEnd())
-
-// The agent is the one line that is markdown, and the frame lays its blocks out the way
-// the Markdown component draws them: a blank row between blocks, a list's continuation
-// under its own words, a quotation barred down its left with the words wrapping clear of
-// the bar. The block strings already carry their own styling, so the shell has only to
-// paint them.
-const markdown = (text: string, columns: number): ReadonlyArray<Row> => {
-  const rows: Array<Row> = []
-
-  blocks(text).forEach((block, index) => {
-    if (index > 0) {
-      rows.push({ source: 'gap', text: '' })
-    }
-
-    if (block.kind === 'text') {
-      for (const row of wrapped(block.text, columns)) {
-        rows.push({ source: 'agent', text: row })
-      }
-
-      return
-    }
-
-    if (block.kind === 'list') {
-      for (const item of block.items) {
-        const indent = item.depth * INDENT
-        const hang = indent + stringWidth(item.marker) + 1
-
-        wrapped(item.text, columns - hang).forEach((row, at) => {
-          const lead = at === 0 ? `${' '.repeat(indent)}${item.marker} ` : ' '.repeat(hang)
-
-          rows.push({ source: 'agent', text: lead + row })
-        })
-      }
-
-      return
-    }
-
-    for (const line of block.text.split('\n')) {
-      wrapped(chalk.italic(line), columns - 2).forEach((row, at) => {
-        const lead = at === 0 ? chalk.dim(`${BAR} `) : '  '
-
-        rows.push({ source: 'agent', text: lead + row })
-      })
-    }
-  })
-
-  return rows
-}
+// The agent is the one line that is markdown, and the layout module draws its blocks: a
+// blank row between them, a list's continuation under its own words, a quotation barred
+// down its left with the words wrapping clear of the bar. This only names what paints
+// each row; the rows already carry their styling.
+const markdown = (text: string, columns: number): ReadonlyArray<Row> =>
+  layout(text, columns).map((row) =>
+    row.type === 'gap' ? { source: 'gap', text: '' } : { source: 'agent', text: row.text },
+  )
 
 // One Transcript line to the rows of the window it takes. Only the agent is more than
 // the text it holds; a call claims a blank row above it, which is the seam that keeps
@@ -322,6 +270,12 @@ const laidOut = (lines: ReadonlyArray<Line>, columns: number): ReadonlyArray<Row
 const pinned = (lines: ReadonlyArray<Line>, viewport: Viewport): number =>
   Math.max(0, laidOut(lines, viewport.columns).length - transcriptRows(viewport))
 
+// Whether the window sits on that end, however it got there: the offset equalling the
+// end `pinned` names is Following, and anything above it is Held. Both the append and
+// the resize read the same question, which is why it is asked in one place.
+const following = (screen: Screen): boolean =>
+  screen.offset === pinned(screen.lines, screen.viewport)
+
 // How many rows one wheel notch moves the window: far enough to be worth the gesture,
 // close enough to keep your place.
 const NOTCH = 3
@@ -345,13 +299,13 @@ const wheeled = (screen: Screen, notch: Notch): Step => {
 // Following window is carried to the new end, where a Held offset stays exactly where it
 // was, so the same lines remain in view as the new ones land below them.
 const appended = (screen: Screen, line: Line): Screen => {
-  const following = screen.offset === pinned(screen.lines, screen.viewport)
+  const wasFollowing = following(screen)
   const lines = written(screen.lines, line)
 
   return {
     ...screen,
     lines,
-    offset: following ? pinned(lines, screen.viewport) : screen.offset,
+    offset: wasFollowing ? pinned(lines, screen.viewport) : screen.offset,
   }
 }
 
@@ -436,12 +390,11 @@ export const send = (screen: Screen, event: ScreenEvent): Step => {
 
     case 'resize': {
       const end = pinned(screen.lines, event.viewport)
-      const following = screen.offset === pinned(screen.lines, screen.viewport)
 
       return {
         screen: {
           ...screen,
-          offset: following ? end : Math.min(screen.offset, end),
+          offset: following(screen) ? end : Math.min(screen.offset, end),
           viewport: event.viewport,
         },
       }

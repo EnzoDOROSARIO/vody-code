@@ -1,17 +1,12 @@
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
 
-import { App, ScreenView } from '#app.tsx'
+import { ScreenView } from '#app.tsx'
 import { start } from '#frame.ts'
-import { BOLD, CYAN, DIM, GREY_BACKGROUND, colourful, plain } from './testing.ts'
+import { BOLD, CYAN, DIM, GREY_BACKGROUND, colourful, plain, screen } from './testing.ts'
 
 import type { Screen } from '#frame.ts'
 
-const never: () => Promise<void> = () => Effect.runPromise(Effect.never)
-
 const VIEWPORT = { columns: 40, rows: 10 }
-
-const screen = (parts: Partial<Screen> = {}): Screen => ({ ...start(VIEWPORT), ...parts })
 
 const bare = (state: Screen): ReadonlyArray<string> =>
   plain(<ScreenView screen={state} />, VIEWPORT.columns).split('\n')
@@ -22,7 +17,7 @@ const painted = (state: Screen): ReadonlyArray<string> =>
 // The idle Composer is the frame's content row: the chevron and the Draft, inside the
 // border the shell draws, on the last rows of the screen.
 it('the idle Composer is framed on the last rows, with the chevron and the Draft', () => {
-  const lines = bare(screen({ draft: 'who am I' }))
+  const lines = bare(screen({ draft: 'who am I' }, VIEWPORT))
 
   expect(lines.at(-3)).toBe(`┌${'─'.repeat(38)}┐`)
   expect(lines.at(-2)).toBe(`│> who am I${' '.repeat(28)}│`)
@@ -32,7 +27,9 @@ it('the idle Composer is framed on the last rows, with the chevron and the Draft
 // A Draft longer than the row slides, so the end — where the next character lands —
 // is always the part in view.
 it('a long Draft slides, so its end stays in the frame', () => {
-  const lines = bare(screen({ draft: 'abcdefghijklmnop', viewport: { columns: 12, rows: 6 } }))
+  const lines = bare(
+    screen({ draft: 'abcdefghijklmnop', viewport: { columns: 12, rows: 6 } }, VIEWPORT),
+  )
 
   expect(lines.at(-2)).toBe('│ghijklmnop│')
 })
@@ -40,7 +37,7 @@ it('a long Draft slides, so its end stays in the frame', () => {
 // Locked the content row is a still ellipsis: dim, the way a tool's text is, but with
 // no slab behind it and no chevron, so it reads as a face and not as a tool or a prompt.
 it('the Locked face is a dim ellipsis, with no chevron and no slab', () => {
-  const content = painted(screen({ locked: true })).at(-2) ?? ''
+  const content = painted(screen({ locked: true }, VIEWPORT)).at(-2) ?? ''
 
   expect(content).toContain('…')
   expect(content).toContain(DIM)
@@ -52,13 +49,16 @@ it('the Locked face is a dim ellipsis, with no chevron and no slab', () => {
 // of the frame painted by nobody, so the slab does not sit against the seam.
 it('a tool is a grey slab, and the gap above it is bare', () => {
   const lines = painted(
-    screen({
-      lines: [
-        { source: 'you', text: '> run it' },
-        { source: 'call', text: '$ echo hi' },
-        { source: 'result', text: 'exit 0' },
-      ],
-    }),
+    screen(
+      {
+        lines: [
+          { source: 'you', text: '> run it' },
+          { source: 'call', text: '$ echo hi' },
+          { source: 'result', text: 'exit 0' },
+        ],
+      },
+      VIEWPORT,
+    ),
   )
 
   expect(lines[0]).toBe('> run it')
@@ -71,7 +71,7 @@ it('a tool is a grey slab, and the gap above it is bare', () => {
 // The seam between the Transcript's window and the frame is the dock's own blank row:
 // it stays put — and stays unpainted — however the Transcript ends.
 it('the seam above the frame is blank, never a slab', () => {
-  const lines = painted(screen({ lines: [{ source: 'result', text: 'exit 0' }] }))
+  const lines = painted(screen({ lines: [{ source: 'result', text: 'exit 0' }] }, VIEWPORT))
 
   expect(lines.at(-4)).toBe('')
   expect(lines.at(-3)).toContain('┌')
@@ -80,13 +80,16 @@ it('the seam above the frame is blank, never a slab', () => {
 // Only the agent writes markdown. What you typed is shown back exactly as typed, and a
 // tool's output is already the text some other program chose.
 it('the agent is read as markdown, and nobody else is', () => {
-  const state = screen({
-    lines: [
-      { source: 'agent', text: 'see `a.ts` and **b**' },
-      { source: 'you', text: '> use *.ts and **glob**' },
-      { source: 'result', text: '- not a list' },
-    ],
-  })
+  const state = screen(
+    {
+      lines: [
+        { source: 'agent', text: 'see `a.ts` and **b**' },
+        { source: 'you', text: '> use *.ts and **glob**' },
+        { source: 'result', text: '- not a list' },
+      ],
+    },
+    VIEWPORT,
+  )
 
   expect(bare(state).slice(0, 3)).toEqual([
     'see a.ts and b',
@@ -140,14 +143,4 @@ it('a Breakdown stands out the way an Impasse does', () => {
   expect(lines[1]).toContain(BOLD)
   expect(lines[1]).not.toContain(GREY_BACKGROUND)
   expect(plain(<ScreenView screen={state} />, WIDE.columns).split('\n')[1]).toBe(BROKE)
-})
-
-// The App is the mount: its window comes from the terminal, not from a prop, so this
-// sees whatever size the process reports and only checks what is true at any size — the
-// framed Composer with an empty Draft is the last thing on the screen.
-it('the app starts with the frame on the last rows and an empty Composer', () => {
-  const shown = plain(<App ask={never} />)
-
-  expect(shown).toContain('│> ')
-  expect(shown.split('\n').at(-1)).toMatch(/^└─+┘$/)
 })

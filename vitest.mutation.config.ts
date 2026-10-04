@@ -21,14 +21,15 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
-      // The screen and its markdown, rendered with Ink's renderToString: no terminal,
-      // no timers, nothing written anywhere. The frame is pure, so its rules are read
-      // without one at all, and so are the raw mouse reports the shell reads back.
+      // The screen, rendered with Ink's renderToString, and the markdown it draws, laid
+      // out purely: no terminal, no timers, nothing written anywhere. The frame is pure,
+      // so its rules are read without one at all, and so are the raw mouse reports the
+      // shell reads back.
       'packages/tui/src/__test__/app.test.tsx',
       'packages/tui/src/__test__/defects.test.ts',
       'packages/tui/src/__test__/frame.test.ts',
       'packages/tui/src/__test__/mouse.test.ts',
-      'packages/tui/src/markdown/__test__/markdown.test.tsx',
+      'packages/tui/src/markdown/__test__/markdown.test.ts',
       // The loop's own behaviour: the model scripted at the top seam and the tools
       // answering from cans behind the seam's hooks, so no file is touched, no git is
       // walked, and no command is run — the counting, the fragments, the Request's flow,

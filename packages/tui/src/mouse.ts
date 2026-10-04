@@ -15,20 +15,18 @@ export type Mouse = { readonly notch: Notch; readonly type: 'wheel' } | { readon
 // over: the leading escape is stripped off (`ink/build/hooks/use-input.js`), leaving
 // `[<`, the button, the column and the row. A press ends `M` and a release `m`. Anchored
 // so that a paste which happens to hold one is not read as the mouse.
-const REPORT = /^\[<(\d+);\d+;\d+[Mm]$/
+const SGR = /^\[<(\d+);\d+;\d+[Mm]$/
 
-/** Reads one raw input as a mouse report, when it is one. */
-export const mouse = (input: string): Mouse | undefined => {
-  const report = REPORT.exec(input)
+// The X10 mouse report a terminal sends when it ignored `?1006`: `[M` and exactly three
+// characters — the button, the column and the row, each biased by 32. Anchored, so a
+// paste that happens to hold one is not read as the mouse.
+const X10 = /^\[M[\s\S]{3}$/
 
-  if (report === null) {
-    return undefined
-  }
-
-  // The button field carries the modifiers the roll was made with — shift 4, meta 8, and
-  // ctrl 16 — beside the wheel's own code, so they are masked off: a modified roll is
-  // still a roll. Any other button is a click, or the drag a held button makes.
-  switch (Number(report[1]) & ~(4 | 8 | 16)) {
+// The button field carries the modifiers the roll was made with — shift 4, meta 8, and
+// ctrl 16 — beside the wheel's own code, so they are masked off: a modified roll is
+// still a roll. Any other button is a click, or the drag a held button makes.
+const notched = (button: number): Mouse => {
+  switch (button & ~(4 | 8 | 16)) {
     case 64:
       return { notch: 'up', type: 'wheel' }
     case 65:
@@ -39,4 +37,19 @@ export const mouse = (input: string): Mouse | undefined => {
     default:
       return { type: 'dropped' }
   }
+}
+
+/** Reads one raw input as a mouse report, when it is one. */
+export const mouse = (input: string): Mouse | undefined => {
+  const report = SGR.exec(input)
+
+  if (report !== null) {
+    return notched(Number(report[1]))
+  }
+
+  if (X10.test(input)) {
+    return notched(input.charCodeAt(2) - 32)
+  }
+
+  return undefined
 }

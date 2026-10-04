@@ -1,7 +1,10 @@
 import chalk from 'chalk'
 import { renderToString } from 'ink'
 
+import { start } from '#frame.ts'
+
 import type { ReactElement } from 'react'
+import type { Screen, Viewport } from '#frame.ts'
 
 export const GREY_BACKGROUND = '\u001B[100m'
 
@@ -61,3 +64,35 @@ export const colourful = (node: ReactElement, columns = 80): string => {
     chalk.level = level
   }
 }
+
+// The mirror of `colourful` for code that paints a string itself rather than through a
+// render: the same raised level, the same check that something came back painted, and
+// the same restore.
+export const painted = (paint: () => string): string => {
+  const level = chalk.level
+
+  chalk.level = 3
+
+  try {
+    const result = paint()
+
+    if (!result.includes('\u001B[')) {
+      throw new Error(
+        'chalk painted nothing: this test and the code under test hold separate copies',
+      )
+    }
+
+    return result
+  } finally {
+    chalk.level = level
+  }
+}
+
+/**
+ * A screen to start a case from: the parts given, over the frame's start at a viewport
+ * that defaults to Ink's own fallback, 80 by 24.
+ */
+export const screen = (
+  parts: Partial<Screen> = {},
+  viewport: Viewport = { columns: 80, rows: 24 },
+): Screen => ({ ...start(viewport), ...parts })
