@@ -1,7 +1,8 @@
-import { Box, Text, useCursor, useInput, useStdin, useWindowSize } from 'ink'
+import { Box, Text, useCursor, useInput, useStdin, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { send, start, transcriptRows, view } from './frame.ts'
+import { mouse } from './mouse.ts'
 
 import type { Activity } from 'agent'
 import type { Row, Screen, ScreenEvent } from './frame.ts'
@@ -103,6 +104,7 @@ export const ScreenView = ({ screen }: { readonly screen: Screen }): ReactElemen
 
 export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   const { isRawModeSupported } = useStdin()
+  const { stdout } = useStdout()
   const window = useWindowSize()
   const [screen, setScreen] = useState<Screen>(() => start(window))
   // The ask settles after the component has re-rendered, so the newest screen has to be
@@ -124,14 +126,34 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   }, [])
 
   // A resize is the one window change that is not a key: Ink reports it, and the frame
-  // lays the Transcript out to the new size and puts the window back at the end. No
-  // string render delivers a resize, so a render at the window's size comes out the same
-  // with the call or without it, which is why the rule lives on the frame.
+  // lays the Transcript out to the new size, carrying a Following window to the new end
+  // and clamping a Held one. No string render delivers a resize, so a render at the
+  // window's size comes out the same with the call or without it, which is why the rule
+  // lives on the frame.
   // Stryker disable next-line BlockStatement,CallExpression: the effect attaches to the terminal, and no test can resize one
   useEffect(() => {
     step({ type: 'resize', viewport: window })
   }, [step, window])
   // Stryker restore ArrayDeclaration
+
+  // The wheel is how the Transcript is read, and a terminal only sends its reports while
+  // it is asked to track the mouse: the mode goes on with the shell and off with it, on
+  // the same unmount Ctrl+C takes. A screen without raw mode is no terminal — a string
+  // render included — and writing the mode to the process's own stream from one would
+  // only leak the sequences.
+  // Stryker disable ArrayDeclaration,BlockStatement,BooleanLiteral,CallExpression,ConditionalExpression,StringLiteral: the mode is set on a terminal, which no string render attaches, and such a render's stream is not one
+  useEffect(() => {
+    if (!isRawModeSupported) {
+      return undefined
+    }
+
+    stdout.write('\u001B[?1000h\u001B[?1006h')
+
+    return () => {
+      stdout.write('\u001B[?1000l\u001B[?1006l')
+    }
+  }, [isRawModeSupported, stdout])
+  // Stryker restore ArrayDeclaration,BlockStatement,BooleanLiteral,CallExpression,ConditionalExpression,StringLiteral
 
   const show = (activity: Activity): void => {
     step({ activity, type: 'activity' })
@@ -142,7 +164,16 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   // without it the rendered screen is the same, which is why the rules live on the frame.
   useInput(
     (input, key) => {
-      const request = step({ chord: key, input, type: 'key' })
+      const report = mouse(input)
+
+      // A click, a drag, or a sideways roll is the mouse and nothing else: it is dropped
+      // here rather than left to land in the Draft as the raw sequence it arrived as. The
+      // wheel is the one report with something to do.
+      if (report?.type === 'dropped') {
+        return
+      }
+
+      const request = step(report ?? { chord: key, input, type: 'key' })
 
       if (request === undefined) {
         return

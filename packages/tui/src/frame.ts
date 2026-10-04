@@ -145,6 +145,9 @@ export type Chord = {
   readonly return: boolean
 }
 
+/** Which way a wheel notch rolls. A sideways notch is no scroll at all. */
+export type Notch = 'down' | 'sideways' | 'up'
+
 /**
  * The window the frame is drawn to, in the terminal's own cells. The rows are what the
  * dock and the Transcript's window divide between them; the columns are what every line
@@ -161,9 +164,9 @@ export type Viewport = {
  * sits among its laid-out rows, and the window it is drawn to.
  *
  * Following is not a flag beside the offset: it is the offset equalling the latest
- * laid-out row, which is zero while everything fits. This slice always Follows, so
- * every event that can change the layout puts the offset there; the wheel is what will
- * be able to leave it above the end.
+ * laid-out row, which is zero while everything fits. Held is the offset above that end,
+ * so the latest line is off the screen. A wheel notch is what moves it there; everything
+ * that appends decides whether to keep the offset or carry it to the new end.
  */
 export type Screen = {
   readonly draft: string
@@ -174,8 +177,9 @@ export type Screen = {
 }
 
 /**
- * One thing that happens to the screen: a key, an Activity the Turn reported, the Turn
- * ending, the ask itself being rejected, or the terminal being resized.
+ * One thing that happens to the screen: a key, a wheel notch, an Activity the Turn
+ * reported, the Turn ending, the ask itself being rejected, or the terminal being
+ * resized.
  */
 export type ScreenEvent =
   | { readonly chord: Chord; readonly input: string; readonly type: 'key' }
@@ -183,6 +187,7 @@ export type ScreenEvent =
   | { readonly type: 'ended' }
   | { readonly message: string; readonly type: 'rejected' }
   | { readonly type: 'resize'; readonly viewport: Viewport }
+  | { readonly notch: Notch; readonly type: 'wheel' }
 
 /** What one event does: the next screen, and the Request when a submit happened. */
 export type Step = {
@@ -313,9 +318,42 @@ const laidOut = (lines: ReadonlyArray<Line>, columns: number): ReadonlyArray<Row
 
 // Where the window sits once it has caught the latest row: the first row of the tail
 // when the Transcript is taller than the window, and the top when everything fits. This
-// slice always Follows, so every event that can change the layout puts the offset here.
+// is the end a Following screen sits on; a Held offset is any point above it.
 const pinned = (lines: ReadonlyArray<Line>, viewport: Viewport): number =>
   Math.max(0, laidOut(lines, viewport.columns).length - transcriptRows(viewport))
+
+// How many rows one wheel notch moves the window: far enough to be worth the gesture,
+// close enough to keep your place.
+const NOTCH = 3
+
+// A notch is the one thing that can leave the latest line behind. Up moves toward the
+// first line, down toward the latest, and a sideways roll is no scroll at all; either
+// way the offset stays among the laid-out rows, and a Transcript that fits has nowhere
+// to go.
+const wheeled = (screen: Screen, notch: Notch): Step => {
+  if (notch === 'sideways') {
+    return { screen }
+  }
+
+  const end = pinned(screen.lines, screen.viewport)
+  const moved = notch === 'up' ? screen.offset - NOTCH : screen.offset + NOTCH
+
+  return { screen: { ...screen, offset: Math.min(end, Math.max(0, moved)) } }
+}
+
+// A line landing on the Transcript never yanks a reader who has left the latest line: a
+// Following window is carried to the new end, where a Held offset stays exactly where it
+// was, so the same lines remain in view as the new ones land below them.
+const appended = (screen: Screen, line: Line): Screen => {
+  const following = screen.offset === pinned(screen.lines, screen.viewport)
+  const lines = written(screen.lines, line)
+
+  return {
+    ...screen,
+    lines,
+    offset: following ? pinned(lines, screen.viewport) : screen.offset,
+  }
+}
 
 // A key does nothing while the Composer is Locked. Otherwise Return submits a non-blank
 // Draft, backspace and delete take the last character, a chord or a key with no
@@ -364,49 +402,51 @@ const pressed = (
 /**
  * Applies one event to the screen, yielding the next screen and any submitted Request.
  *
- * An Activity the screen shows appends to the Transcript; one it declines to show adds
- * nothing. Neither moves a Locked Composer. The Turn ending — a rejection of the ask
- * included — unlocks it, and the rejection is said in the loop's voice first. A resize
- * replaces the window and lays the Transcript out to it again. Everything that can
- * change the layout leaves the offset at the latest row: in this slice the screen is
- * always Following.
+ * A key changes only the Draft. A wheel notch moves the window among the laid-out rows,
+ * at any time. An Activity the screen shows appends to the Transcript; one it declines
+ * to show adds nothing. An append while Following keeps the end in view and one while
+ * Held leaves the offset alone, so a reader is not interrupted; a submit pins to the
+ * end however far the reading had left it. The Turn ending — a rejection of the ask
+ * included — unlocks the Composer, and the rejection is said in the loop's voice first.
+ * A resize lays the Transcript out to the new window: a Following screen is carried to
+ * the new end, and a Held one is clamped, resuming Following when the clamp lands on
+ * that end.
  */
 export const send = (screen: Screen, event: ScreenEvent): Step => {
   switch (event.type) {
     case 'key':
       return pressed(screen, event)
 
+    case 'wheel':
+      return wheeled(screen, event.notch)
+
     case 'activity': {
       const entry = transcribe(event.activity)
 
-      if (entry === undefined) {
-        return { screen }
-      }
-
-      const lines = written(screen.lines, entry)
-
-      return { screen: { ...screen, lines, offset: pinned(lines, screen.viewport) } }
+      return entry === undefined ? { screen } : { screen: appended(screen, entry) }
     }
 
     case 'ended':
       return { screen: { ...screen, locked: false } }
 
-    case 'rejected': {
-      const lines = written(screen.lines, { source: 'loop', text: event.message })
-
+    case 'rejected':
       return {
-        screen: { ...screen, lines, locked: false, offset: pinned(lines, screen.viewport) },
+        screen: { ...appended(screen, { source: 'loop', text: event.message }), locked: false },
       }
-    }
 
-    case 'resize':
+    case 'resize': {
+      const end = pinned(screen.lines, event.viewport)
+      const following = screen.offset === pinned(screen.lines, screen.viewport)
+
       return {
         screen: {
           ...screen,
+          offset: following ? end : Math.min(screen.offset, end),
           viewport: event.viewport,
-          offset: pinned(screen.lines, event.viewport),
         },
       }
+    }
+
     // Stryker disable next-line ConditionalExpression: every event has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
     default:
       return casesHandled(event)

@@ -242,6 +242,23 @@ const screen = (parts: Partial<Screen> = {}): Screen => ({
   ...parts,
 })
 
+/**
+ * A screen whose Transcript is taller than its window: ten one-row lines against a
+ * three-row window, so the latest line sits at offset seven and a notch has room to move
+ * in both directions.
+ */
+const tall = (offset: number, parts: Partial<Screen> = {}): Screen =>
+  screen({
+    lines: ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'].map(
+      (text) => ({ source: 'you' as const, text: `> ${text}` }),
+    ),
+    offset,
+    viewport: { columns: 80, rows: 7 },
+    ...parts,
+  })
+
+const wheel = (notch: 'down' | 'sideways' | 'up'): ScreenEvent => ({ notch, type: 'wheel' })
+
 it('a printable key lands at the end of the Draft', () => {
   const { screen: next } = send(screen({ draft: 'h' }), typed('i'))
 
@@ -491,6 +508,117 @@ it('no key moves the window', () => {
 
   expect(send(state, typed('')).screen.offset).toBe(state.offset)
   expect(send(state, typed('x')).screen.offset).toBe(state.offset)
+})
+
+// The wheel is the only scroll, and the keys that would be one on a screen with a cursor
+// are not: an arrow, Page Up, Page Down, Home, and End reach the frame as a key with no
+// character of its own — Ink hands each over that way — so neither the Draft nor the
+// window changes under them.
+it('a nav key changes neither the Draft nor the window', () => {
+  const state = tall(4, { draft: 'hi' })
+
+  expect(send(state, typed('')).screen).toEqual(state)
+})
+
+// A notch is three laid-out rows — far enough to move, close enough to keep your place —
+// and it stops at both ends: the first line and the latest. Everything fits at the top,
+// so there is nowhere for a notch to go.
+it('a wheel notch moves three laid-out rows, and stops at both ends', () => {
+  expect(send(tall(0), wheel('down')).screen.offset).toBe(3)
+  expect(send(tall(7), wheel('up')).screen.offset).toBe(4)
+  expect(send(tall(2), wheel('up')).screen.offset).toBe(0)
+  expect(send(tall(6), wheel('down')).screen.offset).toBe(7)
+  expect(send(tall(0), wheel('up')).screen.offset).toBe(0)
+  expect(send(tall(7), wheel('down')).screen.offset).toBe(7)
+})
+
+// A Turn in flight is read the same way as an idle screen: a Locked Composer is not a
+// Locked Transcript.
+it('the wheel reads the Transcript while the Composer is Locked', () => {
+  expect(send(tall(7, { locked: true }), wheel('up')).screen.offset).toBe(4)
+  expect(send(tall(0, { locked: true }), wheel('down')).screen.offset).toBe(3)
+})
+
+it('a notch while everything fits and a sideways notch change nothing', () => {
+  const fits = screen({ lines: [{ source: 'you', text: '> one' }] })
+
+  expect(send(fits, wheel('up')).screen).toEqual(fits)
+  expect(send(fits, wheel('down')).screen).toEqual(fits)
+  expect(send(tall(4), wheel('sideways')).screen).toEqual(tall(4))
+})
+
+// Leaving the latest line Holds the reader where they are: the lines a Turn appends grow
+// below the window instead of dragging it along, so what was being read stays put.
+it('leaving the latest line Holds it: new lines stay off the screen', () => {
+  const held = send(tall(7), wheel('up')).screen
+
+  expect(held.offset).toBe(4)
+
+  const shown = view(held).rows
+  const next = send(held, reply('text-1', 'eleven')).screen
+
+  expect(next.offset).toBe(4)
+  expect(view(next).rows).toEqual(shown)
+  expect(view(next).rows).toEqual([
+    { source: 'you', text: '> five' },
+    { source: 'you', text: '> six' },
+    { source: 'you', text: '> seven' },
+  ])
+})
+
+// Scrolling back onto the latest line is catching up, and a caught-up reader stays
+// caught up: the next line appends into view.
+it('scrolling onto the latest line resumes Following', () => {
+  const held = send(tall(7), wheel('up')).screen
+  const caught = send(held, wheel('down')).screen
+
+  expect(caught.offset).toBe(7)
+
+  const next = send(caught, reply('text-1', 'eleven')).screen
+
+  expect(next.offset).toBe(8)
+  expect(view(next).rows.at(-1)).toEqual({ source: 'agent', text: 'eleven' })
+})
+
+// Submitting is a jump to the end however far the reading had left it: the echo and the
+// reply are what the Turn is being waited on for, so they are what is shown.
+it('submitting pins the echo and the end in view even from Held', () => {
+  const step = send(tall(4, { draft: 'who am I' }), RETURN)
+
+  expect(step.request).toBe('who am I')
+  expect(step.screen.offset).toBe(8)
+  expect(view(step.screen).rows).toEqual([
+    { source: 'you', text: '> nine' },
+    { source: 'you', text: '> ten' },
+    { source: 'you', text: '> who am I' },
+  ])
+})
+
+// A resize lays the Transcript out again and clamps the offset. One that leaves the
+// latest line revealed has caught the reader up, so the screen is Following.
+it('a resize that reveals the latest line resumes Following', () => {
+  const held = send(tall(7), wheel('up')).screen
+  const roomy = send(held, { type: 'resize', viewport: { columns: 80, rows: 24 } }).screen
+
+  expect(roomy.offset).toBe(0)
+
+  const next = send(roomy, reply('text-1', 'eleven')).screen
+
+  expect(view(next).rows.at(-1)).toEqual({ source: 'agent', text: 'eleven' })
+})
+
+// One that does not reveal the latest line leaves the reader Held, and the offset still
+// points at real rows: the window is full, not showing past the end of the Transcript.
+it('a resize that does not reveal the latest line leaves it Held, not past the end', () => {
+  const held = send(tall(7), wheel('up')).screen
+
+  const narrower = send(held, {
+    type: 'resize',
+    viewport: { columns: 40, rows: 7 },
+  }).screen
+
+  expect(narrower.offset).toBe(4)
+  expect(view(narrower).rows).toEqual(view(held).rows)
 })
 
 // The blank row above a call is a margin today, so it is a row of the frame like any
