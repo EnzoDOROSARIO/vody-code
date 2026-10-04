@@ -1,295 +1,214 @@
-import { Predicate } from 'effect'
-import { Box, Text, useInput, useStdin } from 'ink'
-import { useReducer, useState } from 'react'
+import { Box, Text, useCursor, useInput, useStdin, useStdout, useWindowSize } from 'ink'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { casesHandled } from './defects.ts'
-import { Markdown } from './markdown/index.tsx'
+import { send, start, transcriptRows, view } from './frame.ts'
+import { eventOf } from './input.ts'
 
-import type {
-  Activity,
-  Breakdown,
-  Impasse,
-  Reminder,
-  Step,
-  ToolCall,
-  ToolFailure,
-  ToolResult,
-} from 'agent'
-import type { Key } from 'ink'
+import type { Activity } from 'agent'
+import type { Row, Screen, ScreenEvent } from './frame.ts'
 import type { ReactElement } from 'react'
 
 export type Ask = (request: string, show: (activity: Activity) => void) => Promise<void>
 
-/**
- * Who put a line in the transcript, which is all its styling depends on. `loop` is the
- * agent too, but the turn loop speaking rather than the model: the Turn is over, and not
- * because the model had finished — an Impasse, or a Breakdown. A `reminder` is the loop
- * speaking mid-Turn as well, but it is not an ending: the Plan, put back in front of the
- * agent.
- */
-export type Source = 'agent' | 'call' | 'loop' | 'reminder' | 'result' | 'you'
+// One row as the terminal paints it. The frame has already decided what each row is —
+// a Request, a tool, the loop's last word — and this only turns that into Ink's styling.
+const Painted = ({ row }: { readonly row: Row }): ReactElement => {
+  // A row with no words in it still takes its line: Ink drops a text node with nothing
+  // in it, which would slide the dock up over the row the frame counted. A bare space
+  // paints the row and is trimmed off the line; on a tool's slab it carries the grey
+  // across the row's full width, the way the blank line inside a multi-line output does.
+  const text = row.text === '' ? ' ' : row.text
 
-/**
- * One line of the transcript.
- *
- * A line the agent is still writing carries the id of the block of prose it holds, so
- * the next fragment of that block knows to land on the end of it. Everything else — a
- * request, a tool, a turn that broke — arrives whole and has no id to carry.
- */
-export type Line = {
-  readonly id?: string
-  readonly source: Source
-  readonly text: string
-}
-
-const PREVIEW_CHARACTERS = 200
-
-// How a Step reads at a glance in the Plan block: its status, as one mark.
-const marks = {
-  completed: '[x]',
-  in_progress: '[>]',
-  pending: '[ ]',
-} satisfies { readonly [Status in Step['status']]: string }
-
-// A Plan write is the Plan itself, so it is announced as its Steps, one per line, each
-// behind the mark its status earns. A write with no Steps is the Plan being cleared,
-// which would otherwise be invisible.
-const drawn = (steps: ReadonlyArray<Step>): string =>
-  steps.length === 0
-    ? 'The Plan was cleared'
-    : steps.map((step) => `${marks[step.status]} ${step.text}`).join('\n')
-
-// The agent reports that it called `bash` with a command; saying that back as a
-// shell prompt is this screen's business, and every tool gets the phrasing that
-// suits it. Adding a tool to the agent lands here as a missing branch.
-const asked = (call: ToolCall): string => {
-  switch (call.name) {
-    case 'bash':
-      return `$ ${call.params.command}`
-    case 'edit_file':
-      return `edit ${call.params.path}`
-    case 'glob':
-      return `glob ${call.params.pattern}`
-    case 'read_file':
-      return `read ${call.params.path}`
-    case 'write_file':
-      return `write ${call.params.path}`
-    case 'write_plan':
-      return drawn(call.params.steps)
-    default:
-      return casesHandled(call)
-  }
-}
-
-// Every tool states a failure in one string field, and so does a call the agent
-// declined to run. Only the model's own errors put something else there, and they
-// carry the sentence in `message` instead.
-const because = (failure: ToolFailure): string =>
-  Predicate.isTagged(failure, 'AiError') ? failure.message : failure.reason
-
-// A tool that worked has usually said what it did in the line announcing it, so only
-// `bash` is worth quoting back. A tool that failed has not been heard from at all.
-//
-// What `bash` returns opens with its exit status, so that status is what the first
-// line of the quote shows. The `Console.log` this replaced previewed the raw output
-// and left the status out; showing it costs a few characters of the preview and is
-// worth them. Anything narrower would mean reading a shape the agent composed for
-// the model, which is the coupling this screen exists to avoid.
-const gave = (result: ToolResult): string | undefined => {
-  if (result.isFailure) {
-    return `${result.name} failed: ${because(result.result)}`
-  }
-
-  return result.name === 'bash' ? result.result.slice(0, PREVIEW_CHARACTERS) : undefined
-}
-
-// Both of the loop's endings are said in one voice — the Turn is over, with no answer —
-// and they differ in why it ended, and in how asking again could help: an Impasse wants
-// the request asked another way, where a model that broke may just answer the same one.
-const ended = (why: string, again: string): string =>
-  `The Turn ended without an answer: ${why}. ${again}, or do this part yourself.`
-
-// A Turn that reached an Impasse hands the prompt back just as one that answered does, so
-// the line has to say it is over and why, or the person sits waiting for an answer that is
-// not coming. The refusals themselves are the lines above it, each with its reasons.
-const stopped = (impasse: Impasse): string =>
-  ended(
-    `the Gates refused ${impasse.refusals} acts with none allowed in between, so the agent stopped trying`,
-    'Ask again another way',
-  )
-
-// A Turn the model broke ends the same way, and the line says why in the words the
-// failure gave it: nothing the model wrote after the break is coming either.
-const broke = (breakdown: Breakdown): string =>
-  ended(`the model broke down — ${breakdown.reason}`, 'Ask again')
-
-// A Reminder is the loop speaking mid-Turn, and it says so before restating the Plan it
-// put back in front of the agent: the same Steps, behind the same marks, that a Plan
-// write shows.
-const reminded = (reminder: Reminder): string =>
-  `The agent was reminded of its Plan:\n${drawn(reminder.steps)}`
-
-export const transcribe = (activity: Activity): Line | undefined => {
-  switch (activity.type) {
-    case 'reply':
-      return { id: activity.id, source: 'agent', text: activity.text }
-    case 'tool-call':
-      return { source: 'call', text: asked(activity) }
-    case 'tool-result': {
-      const shown = gave(activity)
-
-      return shown === undefined ? undefined : { source: 'result', text: shown }
-    }
+  switch (row.source) {
+    case 'loop':
+      // The loop's last word on a Turn is set in bold, with none of a tool's grey, so it
+      // reads as neither the model talking nor a tool's output.
+      return <Text bold>{text}</Text>
 
     case 'reminder':
-      return { source: 'reminder', text: reminded(activity) }
-    case 'impasse':
-      return { source: 'loop', text: stopped(activity) }
-    case 'breakdown':
-      return { source: 'loop', text: broke(activity) }
-    // Stryker disable next-line ConditionalExpression: every Activity has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
+      // The loop speaking before the Turn is over: italic, so it does not read as the
+      // bold last word on a Turn that ended.
+      return <Text italic>{text}</Text>
+
+    case 'call':
+    case 'result':
+      // A tool's output is a grey slab with dim text to sit back from the reply. The gap
+      // above a call is none of these rows, so nothing paints it grey.
+      return (
+        <Box backgroundColor="gray">
+          <Text dimColor>{text}</Text>
+        </Box>
+      )
+
+    case 'agent':
+    case 'gap':
+    case 'you':
+      return <Text>{text}</Text>
+
+    // Stryker disable next-line ConditionalExpression: every Source has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
     default:
-      return casesHandled(activity)
+      return casesHandled(row.source)
   }
 }
 
-// The agent's answer arrives a fragment at a time, so the transcript grows two ways: a
-// fragment of the block the last line is already holding lengthens that line, and
-// everything else lands under it. The first is what a reply being typed out is made of.
-//
-// Matching on the id rather than on the source is what keeps the second block of a
-// reply, and a turn that broke, from being swallowed by the line above them.
-export const written = (lines: ReadonlyArray<Line>, entry: Line): ReadonlyArray<Line> => {
-  const last = lines.at(-1)
-
-  if (entry.id === undefined || last?.id !== entry.id) {
-    return [...lines, entry]
-  }
-
-  return [...lines.slice(0, -1), { ...last, text: last.text + entry.text }]
-}
-
-// A terminal has one font, so a tool's output is set apart the only two ways the
-// terminal offers: a grey slab behind it, and dim text to sit back from the reply.
-// The Box pads to the full width, so a call and the output under it read as one block.
-//
-// The blank row above a call is what keeps the next tool from joining that block: one
-// chain of tools would otherwise arrive as a single slab with no seam to read it by.
-// It is a margin rather than an empty line so that nothing paints it grey.
-//
-// Only the agent writes markdown. What you typed is shown back exactly as typed, and a
-// tool's output is already the text some other program chose.
-const Entry = ({ line }: { readonly line: Line }): ReactElement => {
-  if (line.source === 'agent') {
-    return <Markdown>{line.text}</Markdown>
-  }
-
-  if (line.source === 'you') {
-    return <Text>{line.text}</Text>
-  }
-
-  // The loop's last word on a Turn is set in bold, with none of a tool's grey, so it
-  // reads as neither the model talking nor a tool's output.
-  if (line.source === 'loop') {
-    return <Text bold>{line.text}</Text>
-  }
-
-  // A Reminder is the loop speaking too, but mid-Turn: italic sets it apart the way bold
-  // sets the endings apart, without claiming the Turn is over.
-  if (line.source === 'reminder') {
-    return <Text italic>{line.text}</Text>
-  }
-
-  return (
-    <Box backgroundColor="gray" marginTop={line.source === 'call' ? 1 : 0}>
-      <Text dimColor>{line.text}</Text>
-    </Box>
-  )
-}
-
-export const Transcript = ({ lines }: { readonly lines: ReadonlyArray<Line> }): ReactElement => (
-  <Box flexDirection="column">
-    {lines.map((entry, index) => (
-      // oxlint-disable-next-line react/no-array-index-key -- append-only log
-      <Entry key={index} line={entry} />
+/**
+ * The Transcript's window: the rows the frame laid out, top-aligned inside the rows the
+ * dock left. The height is the frame's, not the rows', so a short Transcript keeps the
+ * dock on the last rows with the gap above it.
+ */
+const Transcript = ({
+  height,
+  rows,
+}: {
+  readonly height: number
+  readonly rows: ReadonlyArray<Row>
+}): ReactElement => (
+  <Box flexDirection="column" height={height}>
+    {rows.map((row, index) => (
+      // oxlint-disable-next-line react/no-array-index-key -- rows are positional and Painted is stateless
+      <Painted key={index} row={row} />
     ))}
   </Box>
 )
 
-export type Chord = Pick<Key, 'backspace' | 'ctrl' | 'delete' | 'meta' | 'return'>
-
-export type Keystroke = {
-  readonly submit: boolean
-  readonly value: string
-}
-
-export const keystroke = (busy: boolean, chord: Chord, input: string, value: string): Keystroke => {
-  if (busy) {
-    return { submit: false, value }
-  }
-
-  if (chord.return) {
-    return value.trim() === '' ? { submit: false, value } : { submit: true, value: '' }
-  }
-
-  if (chord.backspace || chord.delete) {
-    return { submit: false, value: value.slice(0, -1) }
-  }
-
-  if (chord.ctrl || chord.meta) {
-    return { submit: false, value }
-  }
-
-  return { submit: false, value: value + input }
-}
-
-export const Prompt = ({
-  busy,
-  value,
+/**
+ * The dock's framed one-line box. The frame hands over the slice of the content row
+ * that fits inside it and whether that face is Locked; the shell draws the border and
+ * dims the waiting face, deciding nothing itself.
+ */
+const Composer = ({
+  locked,
+  text,
+  width,
 }: {
-  readonly busy: boolean
-  readonly value: string
-}): ReactElement => (busy ? <Text>…</Text> : <Text>{`> ${value}`}</Text>)
+  readonly locked: boolean
+  readonly text: string
+  readonly width: number
+}): ReactElement => (
+  <Box borderStyle="single" height={3} width={width}>
+    {locked ? <Text dimColor>{text}</Text> : <Text>{text}</Text>}
+  </Box>
+)
+
+/**
+ * The screen as the frame describes it: the Transcript's window, the blank seam that
+ * never scrolls, and the framed Composer pinned under both. The terminal cursor is
+ * placed at the cell the frame names, and hidden when the face is Locked, so Locked is
+ * not a place that looks like typing could land.
+ */
+export const ScreenView = ({ screen }: { readonly screen: Screen }): ReactElement => {
+  const shown = view(screen)
+  const { setCursorPosition } = useCursor()
+
+  // The hook syncs through an insertion effect, so the cell has to be handed over during
+  // render; from an effect of our own it would land a paint late.
+  // Stryker disable next-line CallExpression: the call hands the cell to Ink, and a string render never reads the cursor Ink keeps, so dropping it is invisible
+  // Stryker disable next-line ConditionalExpression: the cell is handed to Ink, and a string render never reads the cursor it keeps, so the Locked choice is invisible
+  // Stryker disable next-line ObjectLiteral: the cell is handed to Ink, and a string render never reads the object it keeps, so the object's shape is invisible
+  setCursorPosition(shown.locked ? undefined : { x: shown.cursor.column, y: shown.cursor.row })
+
+  return (
+    <Box flexDirection="column" width={screen.viewport.columns}>
+      <Transcript height={transcriptRows(screen.viewport)} rows={shown.rows} />
+      <Text> </Text>
+      <Composer locked={shown.locked} text={shown.composer} width={screen.viewport.columns} />
+    </Box>
+  )
+}
 
 export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   const { isRawModeSupported } = useStdin()
-  // Stryker disable next-line ArrayDeclaration: the seed is a transcript nobody typed yet,
-  // and it can only be seen through `Entry`, which reads a seeded non-line's `text` as
-  // undefined and paints nothing, while `written` appends on a missing id without ever
-  // reading the seed's shape — no render can tell a seeded transcript from an empty one.
-  const [lines, write] = useReducer(written, [])
-  const [value, setValue] = useState('')
-  const [busy, setBusy] = useState(false)
+  const { stdout } = useStdout()
+  const window = useWindowSize()
+  const [screen, setScreen] = useState<Screen>(() => start(window))
+  // The ask settles after the component has re-rendered, so the newest screen has to be
+  // readable without one: an Activity that arrived while the last one was still being
+  // painted would otherwise land on a stale screen.
+  const latest = useRef<Screen>(screen)
+
+  // Stryker disable ArrayDeclaration: a string render never resizes, so the dependency
+  // lists are never compared, whether they hold the window or not.
+  // Stryker disable next-line BlockStatement: the callback runs only on a terminal event — a keystroke or a resize — and no test can deliver one
+  const dispatch = useCallback((event: ScreenEvent): string | undefined => {
+    const { request, screen: next } = send(latest.current, event)
+
+    latest.current = next
+    // Stryker disable next-line CallExpression: a state update is invisible to a string render, whose output is the first render
+    setScreen(next)
+
+    return request
+  }, [])
+
+  // A resize is the one window change that is not a key: Ink reports it, and the frame
+  // lays the Transcript out to the new size, carrying a Following window to the new end
+  // and clamping a Held one. No string render delivers a resize, so a render at the
+  // window's size comes out the same with the call or without it, which is why the rule
+  // lives on the frame.
+  // Stryker disable next-line BlockStatement: the viewport already matches the window a string render reports, so emptying the resize step changes nothing
+  // Stryker disable next-line CallExpression: the viewport already matches the window a string render reports, so dropping the effect call changes nothing
+  useEffect(() => {
+    dispatch({ type: 'resize', viewport: window })
+  }, [dispatch, window])
+  // Stryker restore ArrayDeclaration
+
+  // The wheel is how the Transcript is read, and a terminal only sends its reports while
+  // it is asked to track the mouse: the mode goes on with the shell and off with it, on
+  // the same unmount Ctrl+C takes. A screen without raw mode is no terminal — a string
+  // render included — and writing the mode to the process's own stream from one would
+  // only leak the sequences.
+  // Stryker disable ArrayDeclaration: a string render mounts the effect once and never re-renders, so its dependencies are never compared
+  // Stryker disable BlockStatement: a string render has no terminal, so emptying the effect's body or its cleanup changes nothing the output carries
+  // Stryker disable BooleanLiteral: flipping the guard writes to the process's own stream, which the render's output never carries
+  // Stryker disable CallExpression: the write goes to the process's own stream, which the render's output never carries, so dropping either call is invisible
+  // Stryker disable ConditionalExpression: the guard's branch only decides whether to write to the process's own stream, which the output never carries
+  // Stryker disable StringLiteral: the sequence written goes to the process's own stream, which the render's output never carries
+  useEffect(() => {
+    if (!isRawModeSupported) {
+      return undefined
+    }
+
+    stdout.write('\u001B[?1000h\u001B[?1006h')
+
+    return () => {
+      stdout.write('\u001B[?1000l\u001B[?1006l')
+    }
+  }, [isRawModeSupported, stdout])
+  // Stryker restore ArrayDeclaration
+  // Stryker restore BlockStatement
+  // Stryker restore BooleanLiteral
+  // Stryker restore CallExpression
+  // Stryker restore ConditionalExpression
+  // Stryker restore StringLiteral
 
   const show = (activity: Activity): void => {
-    const entry = transcribe(activity)
+    dispatch({ activity, type: 'activity' })
+  }
 
-    if (entry !== undefined) {
-      write(entry)
+  // A Turn the model broke is an Activity like any other, so a rejection here is a
+  // defect in the session, not an ending the transcript has a word for. It is said in
+  // the loop's voice, and the Composer comes back either way, so nobody is left waiting
+  // on a Turn that already ended. No Request means no Turn: the event was a key or a
+  // wheel notch, and nothing was submitted.
+  const turned = (request: string | undefined): void => {
+    if (request === undefined) {
+      return
     }
-  }
 
-  const submit = (request: string): void => {
-    setBusy(true)
-    write({ source: 'you', text: `> ${request}` })
-
-    // A Turn the model broke is an Activity like any other, so a rejection here is a
-    // defect in the session, not an ending the transcript has a word for. It is said in
-    // the loop's voice, and the prompt comes back either way, so nobody is left waiting
-    // on a Turn that already ended.
     ask(request, show)
-      .catch((error: Error) => write({ source: 'loop', text: error.message }))
-      .finally(() => setBusy(false))
+      .catch((error: Error) => dispatch({ message: error.message, type: 'rejected' }))
+      .finally(() => dispatch({ type: 'ended' }))
   }
 
+  // Stryker disable next-line CallExpression: the hook attaches the handler to a terminal,
+  // and a string render has no stdin to deliver a keystroke through — with the call or
+  // without it the rendered screen is the same, which is why the rules live on the frame.
   useInput(
     (input, key) => {
-      const next = keystroke(busy, key, input, value)
+      const event = eventOf(input, key)
 
-      setValue(next.value)
-
-      if (next.submit) {
-        submit(value)
+      if (event !== undefined) {
+        turned(dispatch(event))
       }
     },
     // Stryker disable next-line ObjectLiteral: the option gates the handler on a terminal
@@ -298,10 +217,5 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
     { isActive: isRawModeSupported },
   )
 
-  return (
-    <Box flexDirection="column">
-      <Transcript lines={lines} />
-      <Prompt busy={busy} value={value} />
-    </Box>
-  )
+  return <ScreenView screen={screen} />
 }
