@@ -1,7 +1,7 @@
 import { Effect, Layer, Option, Queue, Ref } from 'effect'
 
 import type { Duration, Schema } from 'effect'
-import { AiError, DecisionModel } from 'effect/unstable/ai'
+import { AiError, DecisionModel } from 'effect/ai'
 
 import { Judge } from '#judge.ts'
 

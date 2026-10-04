@@ -5,7 +5,6 @@ import {
   ConfigProvider,
   Duration,
   Effect,
-  Encoding,
   Exit,
   Fiber,
   Layer,
@@ -15,7 +14,8 @@ import {
 } from 'effect'
 
 import type { Cause, Schema } from 'effect'
-import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
+import { FetchHttpClient, HttpClient } from 'effect/http'
+import { Base64Url } from 'effect/encoding'
 
 import { TestClock } from 'effect/testing'
 
@@ -38,7 +38,7 @@ import { outcome, run } from '#tools/__test__/harness.ts'
 
 import type { Reply } from './judging.ts'
 import type { Tools } from '#tools/index.ts'
-import type { Toolkit } from 'effect/unstable/ai'
+import type { Toolkit } from 'effect/ai'
 
 afterEach(removeWorkspaces)
 
@@ -118,8 +118,8 @@ const signedIn = Effect.gen(function* () {
   const exp = Math.floor((yield* Clock.currentTimeMillis) / 1000) + 3600
 
   const token = [
-    Encoding.encodeBase64Url('{"alg":"none"}'),
-    Encoding.encodeBase64Url(
+    Base64Url.encode('{"alg":"none"}'),
+    Base64Url.encode(
       `{"exp":${exp},"https://api.openai.com/auth":{"chatgpt_account_id":"fake-account-id"}}`,
     ),
     '',

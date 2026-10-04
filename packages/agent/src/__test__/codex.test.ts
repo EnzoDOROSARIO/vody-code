@@ -1,7 +1,7 @@
 import { expect, it } from '@effect/vitest'
 import { Context, Effect, Exit, Layer, Redacted, Schema } from 'effect'
-import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
-import { LanguageModel } from 'effect/unstable/ai'
+import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/http'
+import { LanguageModel } from 'effect/ai'
 
 import { authenticate, bodyText, layer, withEncryptedReasoning } from '#codex.ts'
 import { CodexAuthenticationRequired, CodexCredentials } from '#credentials.ts'
@@ -250,7 +250,7 @@ it.live('a request of the model goes out as the adapter was built to send it', (
 
     const body = request === undefined ? {} : sent(request)
 
-    expect(body.model).toBe('gpt-5.6-luna')
+    expect(body.model).toBe('gpt-6-luna')
     expect(body.store).toBe(false)
     expect(body.reasoning?.effort).toBe('max')
     expect(body.include).toEqual(['reasoning.encrypted_content'])

@@ -1,7 +1,7 @@
 import { expect, it } from '@effect/vitest'
 import { Effect, Stream } from 'effect'
 
-import type { AiError } from 'effect/unstable/ai'
+import type { AiError } from 'effect/ai'
 
 import { CommandRefused, toolkit as bash } from '#tools/bash.ts'
 import { before, Hooks, watched } from '#tools/hooks.ts'

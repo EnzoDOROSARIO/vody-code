@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { Effect, Option, Predicate, Queue } from 'effect'
 import type { Layer, Schema } from 'effect'
-import type { Toolkit } from 'effect/unstable/ai'
+import type { Toolkit } from 'effect/ai'
 
 import { answering, judging, rejected } from './judging.ts'
 import { fileExists, judged, readText, removeWorkspaces, workspace } from './testing.ts'

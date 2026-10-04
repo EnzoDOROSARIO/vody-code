@@ -1,6 +1,6 @@
 import { Effect, Schema } from 'effect'
 
-import { Tool, Toolkit } from 'effect/unstable/ai'
+import { Tool, Toolkit } from 'effect/ai'
 
 import { PlanHolder, Steps } from './plan.ts'
 

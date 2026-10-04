@@ -12,11 +12,11 @@ import * as NodePath from 'node:path'
 import { promisify } from 'node:util'
 import * as Util from 'node:util'
 
-import { Chat, LanguageModel, Prompt } from 'effect/unstable/ai'
+import { Chat, LanguageModel, Prompt } from 'effect/ai'
 
 import type { Path } from 'effect'
-import type { AiError, Response } from 'effect/unstable/ai'
-import type { ChildProcessSpawner } from 'effect/unstable/process'
+import type { AiError, Response } from 'effect/ai'
+import type { ChildProcessSpawner } from 'effect/process'
 
 const execFileP = promisify(execFile)
 

@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Stream } from 'effect'
 
 import type { FileSystem, Path } from 'effect'
-import type { LanguageModel } from 'effect/unstable/ai'
+import type { LanguageModel } from 'effect/ai'
 
 import type { Activity } from './activity.ts'
 import { chat } from './prompt.ts'

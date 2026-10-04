@@ -1,6 +1,6 @@
 import { Effect, FileSystem, Path, Schema } from 'effect'
 
-import { Tool, Toolkit } from 'effect/unstable/ai'
+import { Tool, Toolkit } from 'effect/ai'
 
 import { FileSystemRefused, refused } from './errors.ts'
 import { Files } from './files.ts'

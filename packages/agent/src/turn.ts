@@ -1,8 +1,8 @@
 import { Effect, Option, Predicate, Ref, Schema, Stream } from 'effect'
 
-import { Prompt } from 'effect/unstable/ai'
+import { Prompt } from 'effect/ai'
 
-import type { AiError, Chat, LanguageModel, Response, Toolkit } from 'effect/unstable/ai'
+import type { AiError, Chat, LanguageModel, Response, Toolkit } from 'effect/ai'
 
 import { ToolCall } from './activity.ts'
 import { Request } from './request.ts'

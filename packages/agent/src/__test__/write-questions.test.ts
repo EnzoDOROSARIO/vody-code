@@ -1,8 +1,8 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { ConfigProvider, Effect, FileSystem, Layer, Option, Queue } from 'effect'
 import type { Schema } from 'effect'
-import { Decision } from 'effect/unstable/ai'
-import type { Toolkit } from 'effect/unstable/ai'
+import { Decision } from 'effect/ai'
+import type { Toolkit } from 'effect/ai'
 
 import { allows, judging } from './judging.ts'
 import {

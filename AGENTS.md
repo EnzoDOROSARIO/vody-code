@@ -6,9 +6,9 @@
 
 | Path | Upstream | Pinned at |
 | --- | --- | --- |
-| `repos/effect` | [Effect-TS/effect](https://github.com/Effect-TS/effect) | `effect@4.0.0-rc.116` |
+| `repos/effect` | [Effect-TS/effect](https://github.com/Effect-TS/effect) | `effect@4.0.0` |
 
-Read it before reaching for an Effect API, and trust it over remembered APIs or web results: v4 is still an RC and moves. Three entry points, in the order they usually pay off:
+Read it before reaching for an Effect API, and trust it over remembered APIs or web results. Three entry points, in the order they usually pay off:
 
 - `repos/effect/LLMS.md` — Effect's own guidance for writing Effect code.
 - `repos/effect/ai-docs/src/` — runnable worked examples, one directory per topic.
@@ -22,7 +22,7 @@ Application code imports from the installed `effect` package. Paths under `repos
 git subtree pull --prefix=repos/effect https://github.com/Effect-TS/effect.git effect@<version> --squash
 ```
 
-Keep the pin above and the `effect` version in `packages/*/package.json` in step, so the vendored source is the source that runs.
+Keep the pin above and the Effect versions in `pnpm-workspace.yaml` in step, so the vendored source is the source that runs.
 
 ## Linting and formatting
 

@@ -1,6 +1,6 @@
-import { Toolkit } from 'effect/unstable/ai'
+import { Toolkit } from 'effect/ai'
 
-import type { Tool } from 'effect/unstable/ai'
+import type { Tool } from 'effect/ai'
 
 import * as Bash from './bash.ts'
 import * as EditFile from './edit-file.ts'

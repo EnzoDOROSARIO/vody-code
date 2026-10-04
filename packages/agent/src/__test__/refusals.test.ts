@@ -1,6 +1,6 @@
 import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import type { Response } from 'effect/unstable/ai'
+import type { Response } from 'effect/ai'
 
 import { rehearsed, scriptedModel } from './testing.ts'
 import { ActRefused, JudgeDidNotAnswer, TextNotFound } from '#tools/index.ts'

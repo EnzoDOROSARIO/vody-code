@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { Effect, Option, Queue } from 'effect'
 import type { Schema } from 'effect'
-import { Decision } from 'effect/unstable/ai'
+import { Decision } from 'effect/ai'
 
 import { answering, judging } from './judging.ts'
 import { judged, onDisk, removeWorkspaces, temporary, workspace } from './testing.ts'

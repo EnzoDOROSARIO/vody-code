@@ -1,7 +1,7 @@
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
 import { Effect, Layer, Predicate, Redacted } from 'effect'
-import type { LanguageModel } from 'effect/unstable/ai'
-import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/http'
+import type { LanguageModel } from 'effect/ai'
+import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/http'
 
 import type { CodexAuthenticationRequired } from './credentials.ts'
 import { CodexCredentials } from './credentials.ts'

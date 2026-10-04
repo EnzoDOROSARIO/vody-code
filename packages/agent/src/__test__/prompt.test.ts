@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { Effect, Ref } from 'effect'
-import type { Chat } from 'effect/unstable/ai'
+import type { Chat } from 'effect/ai'
 
 import { chat, InstructionsUnreadable } from '#prompt.ts'
 import { onDisk, removeWorkspaces, services, temporary, write } from './testing.ts'

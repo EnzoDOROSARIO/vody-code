@@ -2,7 +2,7 @@ import { NodeServices } from '@effect/platform-node'
 import { DateTime, Effect, FileSystem, Predicate, Stream } from 'effect'
 
 import type { Layer } from 'effect'
-import type { AiError, Tool, Toolkit } from 'effect/unstable/ai'
+import type { AiError, Tool, Toolkit } from 'effect/ai'
 
 import { toolkit } from '#tools/index.ts'
 import { services } from '#__test__/testing.ts'

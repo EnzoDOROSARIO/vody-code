@@ -2,9 +2,9 @@ import { TypeSafeClient, TypeSafeDecisionModel } from '@effect/ai-typesafe'
 import { Clock, Context, Duration, Effect, Layer, Match, Predicate, Schedule, Schema } from 'effect'
 
 import type { Cause } from 'effect'
-import { DecisionModel } from 'effect/unstable/ai'
-import type { AiError, Decision } from 'effect/unstable/ai'
-import type { HttpClient } from 'effect/unstable/http'
+import { DecisionModel } from 'effect/ai'
+import type { AiError, Decision } from 'effect/ai'
+import type { HttpClient } from 'effect/http'
 
 // The provider's floating identifier, as it recommends: the Judge is its current model
 // rather than a release pinned here and left behind.

@@ -1,15 +1,14 @@
 packages:
   - packages/*
 
-# The Effect RC moves with every release; one catalog holds the version every
-# package agrees on, so a bump is a one-line change here.
+# Keep every Effect package on the same stable release through this catalog.
 catalog:
-  '@effect/ai-openai': 4.0.0-rc.116
-  '@effect/ai-typesafe': 4.0.0-rc.116
-  '@effect/platform-node': 4.0.0-rc.116
-  '@effect/vitest': 4.0.0-rc.116
+  '@effect/ai-openai': 4.0.0
+  '@effect/ai-typesafe': 4.0.0
+  '@effect/platform-node': 4.0.0
+  '@effect/vitest': 4.0.0
   '@types/node': ^24.6.0
-  effect: 4.0.0-rc.116
+  effect: 4.0.0
   typescript: 7.0.2
   vitest: 5.0.3
 
@@ -21,11 +20,6 @@ overrides:
   # tests import, the coverage provider and Stryker's runner all land on one
   # store entry.
   '@effect/vitest>vitest': 5.0.3
-  # Effect 4.0.0 stable is out, and a `^4.0.0-rc.116` range happily resolves to
-  # it — but the stable dist layout moved, and the stable packages crash against
-  # the rc the workspace pins (a vendored, read-only pin the app code follows).
-  # Hold every effect-family transitive edge onto the RC.
-  '@effect/platform-node>@effect/platform-node-shared': 4.0.0-rc.116
   # vite-plus bundles its own lint/format stack at newer versions than the
   # `@effect/tsgo` patch supports (it needs oxlint 1.81–1.82; vite-plus pins
   # 1.85). The standalone pair is what `pnpm run lint` runs, so hold the copies

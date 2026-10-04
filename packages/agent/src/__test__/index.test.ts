@@ -1,7 +1,7 @@
 import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { AiError } from 'effect/unstable/ai'
-import type { Response } from 'effect/unstable/ai'
+import { AiError } from 'effect/ai'
+import type { Response } from 'effect/ai'
 
 import { brokenModel, rehearsed, scriptedModel } from './testing.ts'
 

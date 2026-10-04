@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { AiError, Response } from 'effect/unstable/ai'
+import { AiError, Response } from 'effect/ai'
 
 import { screen, unpainted } from '#__test__/testing.ts'
 import { send, start, transcriptRows, view } from '#frame.ts'

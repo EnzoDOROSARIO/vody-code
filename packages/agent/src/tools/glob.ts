@@ -1,7 +1,7 @@
 import { Effect, FileSystem, Path, Schema } from 'effect'
 
-import { Tool, Toolkit } from 'effect/unstable/ai'
-import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
+import { Tool, Toolkit } from 'effect/ai'
+import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import { FileSystemRefused, refused } from './errors.ts'
 import { modifiedAt } from './files.ts'

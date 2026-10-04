@@ -1,6 +1,6 @@
 import { Schema } from 'effect'
 
-import type { Response } from 'effect/unstable/ai'
+import type { Response } from 'effect/ai'
 
 import { toolkit } from './tools/index.ts'
 

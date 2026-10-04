@@ -1,8 +1,8 @@
 import { Layer } from 'effect'
 
 import type { FileSystem, Path } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
-import type { ChildProcessSpawner } from 'effect/unstable/process'
+import { FetchHttpClient } from 'effect/http'
+import type { ChildProcessSpawner } from 'effect/process'
 
 import type { CodexAuthenticationRequired } from './credentials.ts'
 import { CodexCredentials } from './credentials.ts'

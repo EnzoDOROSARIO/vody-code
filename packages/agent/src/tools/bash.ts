@@ -1,7 +1,7 @@
 import { Duration, Effect, FileSystem, Schema, Stream } from 'effect'
 
-import { Tool, Toolkit } from 'effect/unstable/ai'
-import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
+import { Tool, Toolkit } from 'effect/ai'
+import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import { JudgeDidNotAnswer } from '#judge.ts'
 import { ActRefused } from '#verdict.ts'

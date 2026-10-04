@@ -1,8 +1,8 @@
 import { Effect, Layer } from 'effect'
 
 import type { FileSystem, Path } from 'effect'
-import type { Tool } from 'effect/unstable/ai'
-import type { ChildProcessSpawner } from 'effect/unstable/process'
+import type { Tool } from 'effect/ai'
+import type { ChildProcessSpawner } from 'effect/process'
 
 import * as Bash from './bash.ts'
 import * as EditFile from './edit-file.ts'

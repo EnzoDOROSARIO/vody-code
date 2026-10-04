@@ -1,6 +1,6 @@
 import { expect, it } from '@effect/vitest'
 import { Effect, Predicate, Stream } from 'effect'
-import type { Prompt, Response } from 'effect/unstable/ai'
+import type { Prompt, Response } from 'effect/ai'
 
 import { rehearsed, scriptedModel } from './testing.ts'
 import { ActRefused } from '#tools/index.ts'

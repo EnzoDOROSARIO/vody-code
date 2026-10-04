@@ -29,8 +29,8 @@ TypeScript settings are shared from `tsconfig.base.json`; each package extends i
 
 ## Vendored sources
 
-`repos/effect` is the Effect source at `effect@4.0.0-rc.116`, vendored with `git subtree` as read-only
-reference so agents can read the real implementation instead of guessing at a moving RC API. Update it with:
+`repos/effect` is the Effect source at `effect@4.0.0`, vendored with `git subtree` as read-only
+reference so agents can consult the implementation behind the stable API. Update it with:
 
 ```sh
 git subtree pull --prefix=repos/effect https://github.com/Effect-TS/effect.git effect@<version> --squash

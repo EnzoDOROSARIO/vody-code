@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { AiError } from 'effect/unstable/ai'
+import { AiError } from 'effect/ai'
 
 import { allowing } from './judging.ts'
 import {

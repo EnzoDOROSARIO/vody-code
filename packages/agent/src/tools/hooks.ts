@@ -1,6 +1,6 @@
 import { Context, Effect, Ref, Stream } from 'effect'
 
-import type { AiError, Tool, Toolkit } from 'effect/unstable/ai'
+import type { AiError, Tool, Toolkit } from 'effect/ai'
 
 import type { Call, Tools } from './toolkit.ts'
 

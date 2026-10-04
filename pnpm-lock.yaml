@@ -7,30 +7,29 @@ settings:
 catalogs:
   default:
     '@effect/ai-openai':
-      specifier: 4.0.0-rc.116
-      version: 4.0.0-rc.116
+      specifier: 4.0.0
+      version: 4.0.0
     '@effect/ai-typesafe':
-      specifier: 4.0.0-rc.116
-      version: 4.0.0-rc.116
+      specifier: 4.0.0
+      version: 4.0.0
     '@effect/platform-node':
-      specifier: 4.0.0-rc.116
-      version: 4.0.0-rc.116
+      specifier: 4.0.0
+      version: 4.0.0
     '@effect/vitest':
-      specifier: 4.0.0-rc.116
-      version: 4.0.0-rc.116
+      specifier: 4.0.0
+      version: 4.0.0
     '@types/node':
       specifier: ^24.6.0
       version: 24.19.0
     effect:
-      specifier: 4.0.0-rc.116
-      version: 4.0.0-rc.116
+      specifier: 4.0.0
+      version: 4.0.0
     vitest:
       specifier: 5.0.3
       version: 5.0.3
 
 overrides:
   '@effect/vitest>vitest': 5.0.3
-  '@effect/platform-node>@effect/platform-node-shared': 4.0.0-rc.116
   vite-plus>oxlint: 1.82.0
   vite-plus>oxfmt: 0.68.0
   vite-plus>oxlint-tsgolint: 7.0.2001
@@ -94,20 +93,20 @@ importers:
     dependencies:
       '@effect/ai-openai':
         specifier: 'catalog:'
-        version: 4.0.0-rc.116(effect@4.0.0-rc.116)
+        version: 4.0.0(effect@4.0.0)
       '@effect/ai-typesafe':
         specifier: 'catalog:'
-        version: 4.0.0-rc.116(effect@4.0.0-rc.116)
+        version: 4.0.0(effect@4.0.0)
       '@effect/platform-node':
         specifier: 'catalog:'
-        version: 4.0.0-rc.116(effect@4.0.0-rc.116)(redis@6.3.0)
+        version: 4.0.0(effect@4.0.0)(redis@6.3.0)
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.116
+        version: 4.0.0
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.0.0-rc.116(effect@4.0.0-rc.116)(vitest@5.0.3)
+        version: 4.0.0(effect@4.0.0)(vitest@5.0.3)
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.0
@@ -119,7 +118,7 @@ importers:
     dependencies:
       '@effect/platform-node':
         specifier: 'catalog:'
-        version: 4.0.0-rc.116(effect@4.0.0-rc.116)(redis@6.3.0)
+        version: 4.0.0(effect@4.0.0)(redis@6.3.0)
       agent:
         specifier: workspace:*
         version: link:../agent
@@ -128,7 +127,7 @@ importers:
         version: 5.6.2
       effect:
         specifier: 'catalog:'
-        version: 4.0.0-rc.116
+        version: 4.0.0
       ink:
         specifier: 7.1.1
         version: 7.1.1(@types/react@19.3.0)(react@19.3.0)
@@ -147,7 +146,7 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.0.0-rc.116(effect@4.0.0-rc.116)(vitest@5.0.3)
+        version: 4.0.0(effect@4.0.0)(vitest@5.0.3)
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.0
@@ -387,27 +386,27 @@ packages:
   '@blazediff/core@1.10.0':
     resolution: {integrity: sha512-AOQff0zgR7cGsZL+4E7hVkmujoPUpm0J9xzWGWZj5wCjd3gmxESXAPfKyuzs93VdpQNFhHlBhfOjrcZ+XTERtQ==}
 
-  '@effect/ai-openai@4.0.0-rc.116':
-    resolution: {integrity: sha512-+fquqrde4qq28isIR2TCmCTaU0aKHr7hoSjVyzgWfe4rXiBfbaL39ZI2vm06ijXnPQaUcbD6Amm2vo1Vs50Njg==}
+  '@effect/ai-openai@4.0.0':
+    resolution: {integrity: sha512-WjLvyFW4urzXkNy+Ki1YQE912yOxMYHps5gbiPfiUDghuHz0hfA+jzprGL8vj4fTwZI56TIwkviKRqfQNwka7w==}
     peerDependencies:
-      effect: ^4.0.0-rc.116
+      effect: ^4.0.0
 
-  '@effect/ai-typesafe@4.0.0-rc.116':
-    resolution: {integrity: sha512-yk3PFGCwAHajpTVs7VkCbywgCxbVWDFm90mxjRkTktQZcET8qkenZbNf576V3aWHuKKfp1kDfsWNLdxd/345UA==}
+  '@effect/ai-typesafe@4.0.0':
+    resolution: {integrity: sha512-TbInR017yf4KFAYD1jTSr9pkQrob1+9UNyW6KKRHHGfmD8j121f41fOf+60RJ7IIBl/XOUAURC8/Mj7aWkGZtg==}
     peerDependencies:
-      effect: ^4.0.0-rc.116
+      effect: ^4.0.0
 
-  '@effect/platform-node-shared@4.0.0-rc.116':
-    resolution: {integrity: sha512-4FB6UriGqArWFUaFqVchhfCRmmtOVzmD/k/bH6LErlKY8a9amt5dk6c3Arsi7AvUpChsdO+3jsG+P85HsxMkNA==}
+  '@effect/platform-node-shared@4.0.0':
+    resolution: {integrity: sha512-VBXHJU9UXVZPdQGGDRjGXpo+TpOzRwZuMrdKAtIxi1qwcRftmacZ1zTgIrzBa0Z2RA2KVkoOecQUsTlt/nJZhw==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: ^4.0.0-rc.116
+      effect: ^4.0.0
 
-  '@effect/platform-node@4.0.0-rc.116':
-    resolution: {integrity: sha512-uA66Nh998OcChBVX83tQDkBDvQQcVaMXodP9gNGWVeIwWWquy7bzIkAq/fMZGKs/BVFhFQ0XCp3VIqYjnXu5ng==}
+  '@effect/platform-node@4.0.0':
+    resolution: {integrity: sha512-/L+4MUbl8FejPKLHLROYSOebvHnfixkP8KiblSD/DE5uH5xENZBHaux4nH6XMnRP+lr8ajpEJFS8sUrmmxFJeQ==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: ^4.0.0-rc.116
+      effect: ^4.0.0
       redis: '>=5.0.0 <7.0.0'
 
   '@effect/tsgo-darwin-arm64@0.45.0':
@@ -449,10 +448,10 @@ packages:
     resolution: {integrity: sha512-gPG0ixVHgtYBUe5DbKX9vzHlhqd9+ZEfs4m/XWy0808av0A2XqMzaG3F5rnPBN7EUJRPlo9TluIi8WHx/pBV+A==}
     hasBin: true
 
-  '@effect/vitest@4.0.0-rc.116':
-    resolution: {integrity: sha512-q42ue4hAa5AcPBwqi8rvMvR1Jstr+JjsyyxEBUoBk+WWm8otnqFxQ+XbWslW1QSwdg5+2Fdgd7z59IValt9Oiw==}
+  '@effect/vitest@4.0.0':
+    resolution: {integrity: sha512-kGElCPFGtP+CgMCwV/HjJWqtE3zYo6I1+8MSA54l+EI24lPU9p2Efa+TBp1jfkg9j711KKzEqgSAy3VzTsb76Q==}
     peerDependencies:
-      effect: ^4.0.0-rc.116
+      effect: ^4.0.0
       vitest: 5.0.3
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -1928,8 +1927,8 @@ packages:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
     engines: {node: '>= 0.4'}
 
-  effect@4.0.0-rc.116:
-    resolution: {integrity: sha512-nawqJHSjHV8XIBRZNZ+D7cLZpN3kkSjzy6aiT9ofKENsl7xAMFKEoDa0itN5JFl3GUQ1PIN1T1HNlva5+xyO/A==}
+  effect@4.0.0:
+    resolution: {integrity: sha512-ooc1TG5t+FfzgYnFz2ff6BBKyZ7EwBRVXC7c4RhQUAD6/TZ2gTXXMeb4WX7a19ozQo4J73/QW+S00YAIresoMQ==}
 
   electron-to-chromium@1.5.443:
     resolution: {integrity: sha512-TDJG36L9A3CWWwZ97HKaE+Iz1sW80pNp6sAU0owzCIV3Zc9eVyRqZK8Vz6NKuMIU8WjP0pIkoqCa0VRf/yFD0Q==}
@@ -3181,27 +3180,27 @@ snapshots:
 
   '@blazediff/core@1.10.0': {}
 
-  '@effect/ai-openai@4.0.0-rc.116(effect@4.0.0-rc.116)':
+  '@effect/ai-openai@4.0.0(effect@4.0.0)':
     dependencies:
-      effect: 4.0.0-rc.116
+      effect: 4.0.0
 
-  '@effect/ai-typesafe@4.0.0-rc.116(effect@4.0.0-rc.116)':
+  '@effect/ai-typesafe@4.0.0(effect@4.0.0)':
     dependencies:
-      effect: 4.0.0-rc.116
+      effect: 4.0.0
 
-  '@effect/platform-node-shared@4.0.0-rc.116(effect@4.0.0-rc.116)':
+  '@effect/platform-node-shared@4.0.0(effect@4.0.0)':
     dependencies:
       '@types/ws': 8.18.2
-      effect: 4.0.0-rc.116
+      effect: 4.0.0
       ws: 8.22.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/platform-node@4.0.0-rc.116(effect@4.0.0-rc.116)(redis@6.3.0)':
+  '@effect/platform-node@4.0.0(effect@4.0.0)(redis@6.3.0)':
     dependencies:
-      '@effect/platform-node-shared': 4.0.0-rc.116(effect@4.0.0-rc.116)
-      effect: 4.0.0-rc.116
+      '@effect/platform-node-shared': 4.0.0(effect@4.0.0)
+      effect: 4.0.0
       redis: 6.3.0
       undici: 8.11.2
     transitivePeerDependencies:
@@ -3239,9 +3238,9 @@ snapshots:
       '@effect/tsgo-win32-arm64': 0.45.0
       '@effect/tsgo-win32-x64': 0.45.0
 
-  '@effect/vitest@4.0.0-rc.116(effect@4.0.0-rc.116)(vitest@5.0.3)':
+  '@effect/vitest@4.0.0(effect@4.0.0)(vitest@5.0.3)':
     dependencies:
-      effect: 4.0.0-rc.116
+      effect: 4.0.0
       vitest: 5.0.3(@types/node@24.19.0)(@vitest/browser-preview@5.0.1(vite@8.3.2(@types/node@24.19.0)(esbuild@0.28.2)(tsx@4.23.15))(vitest@5.0.3))(@vitest/coverage-v8@5.0.3)(vite@8.3.2(@types/node@24.19.0)(esbuild@0.28.2)(tsx@4.23.15))
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -4292,7 +4291,7 @@ snapshots:
       es-errors: 1.3.0
       gopd: 1.2.0
 
-  effect@4.0.0-rc.116: {}
+  effect@4.0.0: {}
 
   electron-to-chromium@1.5.443: {}
 

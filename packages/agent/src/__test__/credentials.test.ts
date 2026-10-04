@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { NodeServices } from '@effect/platform-node'
-import { Clock, ConfigProvider, Effect, Encoding, Exit, Layer, Redacted } from 'effect'
+import { Clock, ConfigProvider, Effect, Exit, Layer, Redacted } from 'effect'
+import { Base64Url } from 'effect/encoding'
 import * as Util from 'node:util'
 
 import { TestClock } from 'effect/testing'
@@ -18,11 +19,7 @@ type Claims = {
 }
 
 const jwt = (claims: Claims): string =>
-  [
-    Encoding.encodeBase64Url('{"alg":"none"}'),
-    Encoding.encodeBase64Url(JSON.stringify(claims)),
-    '',
-  ].join('.')
+  [Base64Url.encode('{"alg":"none"}'), Base64Url.encode(JSON.stringify(claims)), ''].join('.')
 
 const token = (exp: number): string =>
   jwt({ exp, 'https://api.openai.com/auth': { chatgpt_account_id: ACCOUNT } })
@@ -205,9 +202,7 @@ it.live('a stored token that is not a JWT is reported as such', () =>
 
 it.live('a stored token whose claims will not decode is reported as such', () =>
   Effect.gen(function* () {
-    const exit = yield* readFrozen(
-      yield* codexHome(signedIn(`header.${Encoding.encodeBase64Url('{')}.`)),
-    )
+    const exit = yield* readFrozen(yield* codexHome(signedIn(`header.${Base64Url.encode('{')}.`)))
 
     expect(refusal(exit)).toContain('missing its claims')
   }),
@@ -330,9 +325,7 @@ it.live('a Codex home nowhere asks for a login', () =>
 // nothing to check, and nothing to check is not a session to trust.
 it.live('a token whose claims carry no expiry is not good enough to call with', () =>
   Effect.gen(function* () {
-    const exit = yield* readFrozen(
-      yield* codexHome(signedIn(`header.${Encoding.encodeBase64Url('{}')}.`)),
-    )
+    const exit = yield* readFrozen(yield* codexHome(signedIn(`header.${Base64Url.encode('{}')}.`)))
 
     expect(refusal(exit)).toContain('missing its claims')
   }),
@@ -340,7 +333,7 @@ it.live('a token whose claims carry no expiry is not good enough to call with', 
 
 it.live('an account claim of another shape is not good enough to call with', () =>
   Effect.gen(function* () {
-    const payload = Encoding.encodeBase64Url(
+    const payload = Base64Url.encode(
       `{"exp":${inOneHour},"https://api.openai.com/auth":{"chatgpt_account_id":42}}`,
     )
 

@@ -1,7 +1,7 @@
 import { Effect, FileSystem, Option, Path, Predicate, Schema } from 'effect'
 
 import type { PlatformError } from 'effect'
-import { Chat, Prompt } from 'effect/unstable/ai'
+import { Chat, Prompt } from 'effect/ai'
 
 import { Workspace } from '#workspace.ts'
 

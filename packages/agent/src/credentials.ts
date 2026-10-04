@@ -1,14 +1,5 @@
-import {
-  Clock,
-  Config,
-  Context,
-  Effect,
-  Encoding,
-  FileSystem,
-  Layer,
-  Redacted,
-  Schema,
-} from 'effect'
+import { Clock, Config, Context, Effect, FileSystem, Layer, Redacted, Schema } from 'effect'
+import { Base64Url } from 'effect/encoding'
 
 /**
  * The agent is not signed in to Codex, or what it has stored is no longer good enough
@@ -118,7 +109,7 @@ export class CodexCredentials extends Context.Service<
               return yield* authenticationRequired('the stored Codex token is not a JWT')
             }
 
-            const claims = yield* Effect.fromResult(Encoding.decodeBase64UrlString(payload)).pipe(
+            const claims = yield* Effect.fromResult(Base64Url.decodeString(payload)).pipe(
               Effect.flatMap(Schema.decodeEffect(Claims)),
               Effect.mapError(() =>
                 authenticationRequired('the stored Codex token is missing its claims'),
