@@ -7,11 +7,11 @@ import type { AiError, Chat, LanguageModel, Response, Toolkit } from 'effect/uns
 import { ToolCall } from './activity.ts'
 import { Request } from './request.ts'
 import { watched } from './tools/hooks.ts'
-import { Plan, fresh, reminder } from '#tools/plan.ts'
+import { Plan, fresh, reminder } from './tools/plan.ts'
 
 import type { Activity, ToolResult } from './activity.ts'
 import type { Tools } from './tools/index.ts'
-import type { Step } from '#tools/plan.ts'
+import type { Step } from './tools/plan.ts'
 
 // The arguments are checked against the same schema the tool itself decodes with, so
 // a call that fails here is one the tool is about to refuse. Staying quiet costs

@@ -1,9 +1,7 @@
 import { Context, Effect, Ref, Schema } from 'effect'
 
 /** Where one Step of the Plan stands: the three states the agent can mark it with. */
-export const Status = Schema.Literals(['pending', 'in_progress', 'completed'])
-
-export type Status = typeof Status.Type
+const Status = Schema.Literals(['pending', 'in_progress', 'completed'])
 
 // A Step with nothing to read is not a Step: `Schema.isNonEmpty` would take `'   '`, so
 // the rule is the text that survives a trim. The message is the model's, not the
@@ -41,7 +39,7 @@ export type Written = {
   readonly writes: number
 }
 
-export const NOTHING: Written = { steps: [], writes: 0 }
+const NOTHING: Written = { steps: [], writes: 0 }
 
 /**
  * Where the Plan is held for a Turn: `write` is the `write_plan` handler's alone, and
