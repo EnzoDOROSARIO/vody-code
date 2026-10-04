@@ -61,8 +61,9 @@ export class Session extends Context.Service<
 
       // A Turn runs to a promise outside any fiber of this runtime, so the services it
       // needs go with it: captured here, where the session is built, and provided again
-      // around every ask.
-      const services = yield* Effect.context<Handlers | LanguageModel.LanguageModel>()
+      // around every ask. The Catalog travels with them because `load_skill` reads it
+      // through the toolkit: the same copy this layer's conversation was given.
+      const services = yield* Effect.context<Catalog | Handlers | LanguageModel.LanguageModel>()
 
       const ask = (request: string, show: (activity: Activity) => void): Effect.Effect<void> =>
         Stream.runForEach(answer(conversation, tools, request), (activity) =>

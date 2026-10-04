@@ -27,11 +27,12 @@ import { Home } from '#home.ts'
 import { Session, handlers } from '#index.ts'
 import { before } from '#tools/hooks.ts'
 import { Hooks, toolkit, toolkitLayer } from '#tools/index.ts'
+import * as LoadSkill from '#tools/load-skill.ts'
 import * as WritePlan from '#tools/write-plan.ts'
 import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
-import type { SkillUnreadable } from '#catalog.ts'
+import type { Skill, SkillUnreadable } from '#catalog.ts'
 import type { InstructionsUnreadable } from '#prompt.ts'
 import type { Judge } from '#judge.ts'
 import type { Handler } from '#tools/hooks.ts'
@@ -338,14 +339,16 @@ export const brokenModel = (
 // The tools' answers from cans: every tool that touches the machine states a success as
 // one string, so a can is a string, and what one tool's answer says against another's is
 // nothing the loop can see. `write_plan` touches nothing, so it needs no can: its real
-// handler runs, storing into whatever holder of the Plan is around the call. A test that
-// wants an act refused, or a tool to fail on its own, plays that in the hooks a can runs
-// behind — the seam takes the failure as the tool's own, whether it stood in for one of
-// the Gates or nothing at all.
+// handler runs, storing into whatever holder of the Plan is around the call. `load_skill`
+// is the same: its real handler serves the in-memory Catalog the harness provides. A test
+// that wants an act refused, or a tool to fail on its own, plays that in the hooks a can
+// runs behind — the seam takes the failure as the tool's own, whether it stood in for one
+// of the Gates or nothing at all.
 const canned = toolkit.of({
   bash: () => Effect.succeed('exit 0\nhi'),
   edit_file: () => Effect.succeed('the file is the way the edit left it'),
   glob: () => Effect.succeed('kept.txt'),
+  load_skill: LoadSkill.handler,
   read_file: () => Effect.succeed('kept'),
   write_file: () => Effect.succeed('wrote 4 bytes'),
   write_plan: WritePlan.handler,
@@ -357,13 +360,15 @@ const canned = toolkit.of({
  * file read or written, no git walked, no command run. The one entry point a test has
  * into the agent with no infrastructure under it, so everything the loop does is said by
  * the model's script and answered by the cans — and the code it covers can live under
- * the unit gate's mutation run.
+ * the unit gate's mutation run. `catalog` is the in-memory Catalog `load_skill` serves,
+ * no Skills unless a test says otherwise, so a load never touches the workspace's own.
  */
 export const rehearsed = (
   model: Layer.Layer<LanguageModel.LanguageModel>,
   requests: ReadonlyArray<string>,
   hooks: Hooks = {},
   answers: Partial<{ readonly [Name in keyof Tools]: Handler<Name> }> = {},
+  catalog: ReadonlyMap<string, Skill> = withoutSkills,
 ): Effect.Effect<Array<Activity>> => {
   const program = Effect.gen(function* () {
     const kit = yield* toolkit
@@ -385,16 +390,19 @@ export const rehearsed = (
     Effect.provide(
       Layer.mergeAll(
         model,
-        toolkit.toLayer(
-          toolkit.of({
-            bash: before(hooks, 'bash', answers.bash ?? canned.bash),
-            edit_file: before(hooks, 'edit_file', answers.edit_file ?? canned.edit_file),
-            glob: before(hooks, 'glob', answers.glob ?? canned.glob),
-            read_file: before(hooks, 'read_file', answers.read_file ?? canned.read_file),
-            write_file: before(hooks, 'write_file', answers.write_file ?? canned.write_file),
-            write_plan: before(hooks, 'write_plan', answers.write_plan ?? canned.write_plan),
-          }),
-        ),
+        toolkit
+          .toLayer(
+            toolkit.of({
+              bash: before(hooks, 'bash', answers.bash ?? canned.bash),
+              edit_file: before(hooks, 'edit_file', answers.edit_file ?? canned.edit_file),
+              glob: before(hooks, 'glob', answers.glob ?? canned.glob),
+              load_skill: before(hooks, 'load_skill', answers.load_skill ?? canned.load_skill),
+              read_file: before(hooks, 'read_file', answers.read_file ?? canned.read_file),
+              write_file: before(hooks, 'write_file', answers.write_file ?? canned.write_file),
+              write_plan: before(hooks, 'write_plan', answers.write_plan ?? canned.write_plan),
+            }),
+          )
+          .pipe(Layer.provideMerge(Layer.succeed(Catalog, catalog))),
       ),
     ),
   )

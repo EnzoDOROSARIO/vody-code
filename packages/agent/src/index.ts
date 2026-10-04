@@ -32,6 +32,7 @@ export {
   FileNotRead,
   FileSystemRefused,
   JudgeDidNotAnswer,
+  SkillNotFound,
   TextNotFound,
   TextNotUnique,
 } from './tools/index.ts'

@@ -10,6 +10,7 @@ import { watched } from './tools/hooks.ts'
 import { PlanHolder, fresh } from './tools/plan.ts'
 
 import type { Activity, ToolResult } from './activity.ts'
+import type { Catalog } from './catalog.ts'
 import type { Tools } from './tools/index.ts'
 import type { Step, Written } from './tools/plan.ts'
 
@@ -159,7 +160,7 @@ type Turn = {
 const respond = (
   turn: Turn,
   prompt: Prompt.RawInput,
-): Stream.Stream<Activity, AiError.AiError, LanguageModel.LanguageModel> =>
+): Stream.Stream<Activity, AiError.AiError, Catalog | LanguageModel.LanguageModel> =>
   Stream.unwrap(
     Effect.gen(function* () {
       const calledTools = yield* Ref.make(false)
@@ -266,7 +267,7 @@ export const answer = (
   chat: Chat.Chat,
   tools: Toolkit.WithHandler<Tools>,
   request: string,
-): Stream.Stream<Activity, never, LanguageModel.LanguageModel> =>
+): Stream.Stream<Activity, never, Catalog | LanguageModel.LanguageModel> =>
   Stream.unwrap(
     Effect.gen(function* () {
       const { holder, written } = yield* fresh

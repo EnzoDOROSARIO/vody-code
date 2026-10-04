@@ -26,13 +26,14 @@ const standing = (workspace: string): string =>
     `You are operating in ${workspace}`,
   ].join('\n')
 
-// The Skills section, pinned in full apart from the list it carries. Ticket #29 amends
-// this wording when `load_skill` arrives; this literal is what it will change.
+// The Skills section, pinned in full apart from the list it carries: what a Skill is,
+// what the Catalog holds, and how to load one before the work it covers.
 const section = (skills: ReadonlyArray<readonly [string, string]>): string =>
   [
     '<skills>',
     'A Skill is a folder of instructions for one kind of work, named and described by the SKILL.md at its top. These are the Skills available to you:',
     ...skills.map(([name, description]) => `- ${name}: ${description}`),
+    "Before you start the work a Skill covers, load it with load_skill, passing the name above. The load returns the Skill's instructions and the absolute path of its folder; when those instructions send you to another file in the folder, read it with read_file.",
     '</skills>',
   ].join('\n')
 
