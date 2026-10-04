@@ -34,14 +34,34 @@ _Avoid_: Question, prompt, input, message
 
 **Activity**:
 One thing that happened on the way to the end of a Turn, reported as it happens:
-something the agent did, or the loop's own report of an Impasse or a Breakdown. An
-Activity is a report, never a rendering: what it looks like is the screen's business.
+something the agent did, or the loop's own report: a Reminder, an Impasse or a
+Breakdown. An Activity is a report, never a rendering: what it looks like is the
+screen's business.
 _Avoid_: Event, message, update
 
 **Workspace**:
 Where the agent is working: the directory commands run in and relative paths resolve
 against. Not a security boundary — see Perimeter.
 _Avoid_: Working directory, project root, cwd
+
+### The plan
+
+**Plan**:
+The Steps the agent has set itself for the work in hand, as it last wrote them. There
+is one for the whole conversation, and it outlives the Turn that wrote it.
+_Avoid_: Todo list, task list, checklist, plan mode
+
+**Step**:
+One piece of the work in the Plan, and how far along it is: pending, in progress, or
+completed. A Step dropped from the work is not completed; it is left out of the Plan.
+_Avoid_: Todo, task, item
+
+**Reminder**:
+The Plan as it stands, said to the model by the loop rather than by you, when the model
+wrote the Plan earlier in this Turn and has gone on working without writing it again
+while Steps remain to finish. There is at most one for each write. It is never a
+Request.
+_Avoid_: Nag, nudge, prompt
 
 ### The screen
 
@@ -83,8 +103,8 @@ written one, so a symbolic link cannot carry a change out of the tree.
 _Avoid_: Path check, boundary check, escape check
 
 **Gate**:
-A place where an act is examined before it happens. There are two: writing outside the
-Perimeter, and running a shell command.
+A place where an act is examined before it happens. There are two: writing a file
+outside the Perimeter, and running a shell command.
 _Avoid_: Check, guard, rule, policy
 
 **Judge**:
