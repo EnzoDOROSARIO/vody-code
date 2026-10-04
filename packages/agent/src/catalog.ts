@@ -3,10 +3,11 @@ import { Yaml } from 'effect/encoding'
 
 import type { PlatformError } from 'effect'
 
+import { Home } from './home.ts'
 import { Workspace } from './workspace.ts'
 
-// Where the Workspace keeps the Skills written for it, beside the instructions it writes
-// for whoever works in it.
+// Where the Workspace and the home directory keep the Skills written for them, beside
+// the instructions a Workspace writes for whoever works in it.
 const SKILLS = ['.agents', 'skills'] as const
 
 const INSTRUCTIONS = 'SKILL.md'
@@ -119,13 +120,14 @@ const isDirectory = (
 
 // Every Skill is validated, including the ones marked `disable-model-invocation`: a
 // broken file is refused whether or not the agent would have been shown it. The marked
-// ones are left out of the Catalog only once they have passed.
+// ones are left out of the Catalog only once they have passed — but their names are kept,
+// because a name that exists here still hides a home Skill that shares it.
 const validated = (
   entry: string,
   folder: string,
   file: string,
   text: string,
-): Effect.Effect<Option.Option<readonly [string, Skill]>, SkillUnreadable> =>
+): Effect.Effect<readonly [string, Option.Option<Skill>], SkillUnreadable> =>
   Effect.gen(function* () {
     const { frontmatter, body } = split(text)
 
@@ -165,11 +167,10 @@ const validated = (
       return yield* broken(file, `the name "${name}" does not match the folder "${entry}"`)
     }
 
-    if (disabled) {
-      return Option.none()
-    }
-
-    return Option.some<readonly [string, Skill]>([entry, { description, path: folder, body }])
+    return [
+      entry,
+      disabled ? Option.none<Skill>() : Option.some({ description, path: folder, body }),
+    ]
   })
 
 // One entry of the skills directory, if it is a Skill: a folder, with a SKILL.md that
@@ -179,7 +180,7 @@ const candidate = (
   directory: string,
   entry: string,
 ): Effect.Effect<
-  Option.Option<readonly [string, Skill]>,
+  Option.Option<readonly [string, Option.Option<Skill>]>,
   SkillUnreadable | PlatformError.PlatformError,
   FileSystem.FileSystem | Path.Path
 > =>
@@ -200,7 +201,32 @@ const candidate = (
       return Option.none()
     }
 
-    return yield* validated(entry, folder, file, text.value)
+    return Option.some(yield* validated(entry, folder, file, text.value))
+  })
+
+// One skills directory, kept by name: the Skill itself when the agent may load it, and
+// none for one its author kept for the person alone. Every validated name is a key,
+// whether or not it reached the Catalog, because a name here is what hides a home Skill
+// of the same name.
+const readSkills = (
+  directory: string,
+): Effect.Effect<
+  ReadonlyMap<string, Option.Option<Skill>>,
+  SkillUnreadable | PlatformError.PlatformError,
+  FileSystem.FileSystem | Path.Path
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+
+    // No skills folder is a place that keeps no Skills, not a failure. Any other failure
+    // to look inside one stops the session before the screen exists.
+    const entries = yield* fs
+      .readDirectory(directory)
+      .pipe(Effect.catchIf(absent, () => Effect.succeed([])))
+
+    const found = yield* Effect.forEach(entries, (entry) => candidate(directory, entry))
+
+    return new Map(found.flatMap((entry) => Option.toArray(entry)))
   })
 
 /**
@@ -208,8 +234,11 @@ const candidate = (
  * what a load hands back. A required port rather than a defaulted reference: a
  * composition that forgets it is a compile error, not an empty Catalog at runtime.
  *
- * The Workspace's own folder is read once, while the session is built, so the Catalog
- * stays the same until the session ends and the disk is read once for the whole run.
+ * The Workspace's folder and the home directory's are read once, while the session is
+ * built, so the Catalog stays the same until the session ends and the disk is read once
+ * for the whole run. Where both hold a name, the Workspace's Skill is the one in the
+ * Catalog — and its name hides the home one even when the Workspace kept its own for the
+ * person alone, so neither is listed.
  */
 export class Catalog extends Context.Service<Catalog, ReadonlyMap<string, Skill>>()(
   'agent/Catalog',
@@ -217,25 +246,43 @@ export class Catalog extends Context.Service<Catalog, ReadonlyMap<string, Skill>
   static readonly layer: Layer.Layer<
     Catalog,
     SkillUnreadable | PlatformError.PlatformError,
-    FileSystem.FileSystem | Path.Path | Workspace
+    FileSystem.FileSystem | Home | Path.Path | Workspace
   > = Layer.effect(
     Catalog,
     Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
+      const home = yield* Home
       const workspace = yield* Workspace
 
-      const directory = path.join(workspace, ...SKILLS)
+      const workspaceSkills = yield* readSkills(path.join(workspace, ...SKILLS))
 
-      // No skills folder is a Workspace that ships no Skills, not a failure. Any other
-      // failure to look inside one stops the session before the screen exists.
-      const entries = yield* fs
-        .readDirectory(directory)
-        .pipe(Effect.catchIf(absent, () => Effect.succeed([])))
+      const homeSkills = yield* Option.match(home, {
+        onNone: () => Effect.succeed(new Map<string, Option.Option<Skill>>()),
+        onSome: (directory) => readSkills(path.join(directory, ...SKILLS)),
+      })
 
-      const found = yield* Effect.forEach(entries, (entry) => candidate(directory, entry))
+      const catalog = new Map<string, Skill>()
 
-      return new Map(found.flatMap((entry) => Option.toArray(entry)))
+      // The Workspace's Skills first, as the ones written for this project. Its names —
+      // the ones kept for the person alone included — then hide every home Skill that
+      // shares them, so the model is never left to guess which of two it may load.
+      for (const [name, skill] of workspaceSkills) {
+        if (Option.isSome(skill)) {
+          catalog.set(name, skill.value)
+        }
+      }
+
+      for (const [name, skill] of homeSkills) {
+        if (workspaceSkills.has(name)) {
+          continue
+        }
+
+        if (Option.isSome(skill)) {
+          catalog.set(name, skill.value)
+        }
+      }
+
+      return catalog
     }),
   )
 }
