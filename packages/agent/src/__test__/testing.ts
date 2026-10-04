@@ -14,7 +14,7 @@ import * as Util from 'node:util'
 
 import { Chat, LanguageModel, Prompt } from 'effect/ai'
 
-import type { Path } from 'effect'
+import type { Path, PlatformError } from 'effect'
 import type { AiError, Response } from 'effect/ai'
 import type { ChildProcessSpawner } from 'effect/process'
 
@@ -22,6 +22,7 @@ const execFileP = promisify(execFile)
 
 import { allowing } from './judging.ts'
 import { answer } from '#turn.ts'
+import { Catalog } from '#catalog.ts'
 import { Session, handlers } from '#index.ts'
 import { before } from '#tools/hooks.ts'
 import { Hooks, toolkit, toolkitLayer } from '#tools/index.ts'
@@ -29,10 +30,16 @@ import * as WritePlan from '#tools/write-plan.ts'
 import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
+import type { SkillUnreadable } from '#catalog.ts'
 import type { InstructionsUnreadable } from '#prompt.ts'
 import type { Judge } from '#judge.ts'
 import type { Handler } from '#tools/hooks.ts'
 import type { Handlers, Tools } from '#tools/index.ts'
+
+// The in-memory Catalog the unit tests run against: no Skills, and no disk read. The
+// real reading is the startup suite's business; these tests are in memory, so they
+// provide this and never touch the workspace's `.agents/skills/`.
+const withoutSkills: Catalog['Service'] = new Map()
 
 // `tools` on the platform, with `workspace` as the Workspace.
 const mounted = (
@@ -42,10 +49,11 @@ const mounted = (
     ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
   >,
   workspace: string,
-): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> =>
+): Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace> =>
   tools.pipe(
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(Layer.succeed(Workspace, workspace)),
+    Layer.provideMerge(Layer.succeed(Catalog, withoutSkills)),
   )
 
 /**
@@ -56,7 +64,7 @@ const mounted = (
 export const judged = (
   workspace: string,
   judge: Layer.Layer<Judge>,
-): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> =>
+): Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace> =>
   mounted(handlers.pipe(Layer.provide(judge)), workspace)
 
 // Hooks are read where the toolkit layer is built, so they go in under it. A test that
@@ -69,7 +77,7 @@ export const judged = (
 export const services = (
   workspace: string,
   hooks?: Hooks,
-): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> =>
+): Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace> =>
   hooks === undefined
     ? judged(workspace, allowing)
     : mounted(toolkitLayer.pipe(Layer.provide(Layer.succeed(Hooks, hooks))), workspace)
@@ -79,7 +87,8 @@ export const services = (
 // there — so the one test that shows what the empty seam does is the only way to it.
 export const unhooked = (
   workspace: string,
-): Layer.Layer<NodeServices.NodeServices | Handlers | Workspace> => mounted(toolkitLayer, workspace)
+): Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace> =>
+  mounted(toolkitLayer, workspace)
 
 export const onDisk = <A>(effect: Effect.Effect<A, never, FileSystem.FileSystem>): Promise<A> =>
   // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
@@ -110,6 +119,11 @@ export const removeTree = (path: string): Promise<void> =>
 
 export const write = (path: string, content: string | Uint8Array): Promise<void> =>
   Fs.mkdir(NodePath.dirname(path), { recursive: true }).then(() => Fs.writeFile(path, content))
+
+// A Skill folder kept elsewhere and linked into the skills directory: the link is what
+// the catalog finds, and reading through it reaches the folder it names.
+export const symlink = (target: string, link: string): Promise<void> =>
+  Fs.mkdir(NodePath.dirname(link), { recursive: true }).then(() => Fs.symlink(target, link))
 
 // What a program's outcome looks like when it is printed rather than inspected:
 // a failure renders as its Cause with the errors' fields expanded, so a test can
@@ -374,8 +388,11 @@ export const rehearsed = (
 export const sessioned = (
   model: Layer.Layer<LanguageModel.LanguageModel>,
   requests: ReadonlyArray<string>,
-  tools: Layer.Layer<NodeServices.NodeServices | Handlers | Workspace>,
-): Effect.Effect<Array<Activity>, InstructionsUnreadable> => {
+  tools: Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace>,
+): Effect.Effect<
+  Array<Activity>,
+  InstructionsUnreadable | SkillUnreadable | PlatformError.PlatformError
+> => {
   const program = Effect.gen(function* () {
     const agent = yield* Session
 
@@ -412,5 +429,7 @@ export const asked = (
   script: Script,
   requests: ReadonlyArray<string>,
   hooks?: Hooks,
-): Effect.Effect<Array<Activity>, InstructionsUnreadable> =>
-  sessioned(scriptedModel(script), requests, services(process.cwd(), hooks))
+): Effect.Effect<
+  Array<Activity>,
+  InstructionsUnreadable | SkillUnreadable | PlatformError.PlatformError
+> => sessioned(scriptedModel(script), requests, services(process.cwd(), hooks))
