@@ -43,6 +43,32 @@ Where the agent is working: the directory commands run in and relative paths res
 against. Not a security boundary — see Perimeter.
 _Avoid_: Working directory, project root, cwd
 
+### The screen
+
+**Composer**:
+The framed one-line box pinned to the bottom of the screen, holding the draft of the next Request.
+_Avoid_: Prompt, input, editor, text box
+
+**Draft**:
+Text in the Composer that has not been submitted. It is not a Request, and it is not part of the conversation.
+_Avoid_: Buffer, input, prompt
+
+**Locked**:
+The Composer for the whole of a Turn: still there, but not a place the draft can change.
+_Avoid_: Disabled, busy, readonly
+
+**Transcript**:
+The screen's record of the conversation: each Request as typed, and each Activity the screen shows, in the order reported.
+_Avoid_: Log, history, chat
+
+**Following**:
+The Transcript pinned to its latest line.
+_Avoid_: Tail, auto-scroll, stick
+
+**Held**:
+The Transcript scrolled off its latest line, so the lines in view stay put.
+_Avoid_: Detached, frozen, stuck
+
 ### Permission
 
 **Perimeter**:
