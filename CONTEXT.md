@@ -63,6 +63,21 @@ while Steps remain to finish. There is at most one for each write. It is never a
 Request.
 _Avoid_: Nag, nudge, prompt
 
+### Skills
+
+**Skill**:
+A folder of instructions for one kind of work, named and described by the SKILL.md at
+its top, kept in the Workspace or in your home directory. When both hold a Skill of the
+same name, the Workspace's is the one the agent knows; the other does not exist for it.
+What a Skill says is never a Request — see ADR 0001.
+_Avoid_: Plugin, command, recipe, playbook
+
+**Catalog**:
+The name and description of every Skill the agent may load, told to the model as the
+session begins and unchanged until it ends. A Skill its author kept for you alone to
+call is never in it.
+_Avoid_: Index, registry, skill list, manifest
+
 ### The screen
 
 **Composer**:
