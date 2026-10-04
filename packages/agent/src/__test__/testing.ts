@@ -25,6 +25,7 @@ import { answer } from '#turn.ts'
 import { Session, handlers } from '#index.ts'
 import { before } from '#tools/hooks.ts'
 import { Hooks, toolkit, toolkitLayer } from '#tools/index.ts'
+import * as WritePlan from '#tools/write-plan.ts'
 import { Workspace } from '#workspace.ts'
 
 import type { Activity } from '#activity.ts'
@@ -290,17 +291,20 @@ export const brokenModel = (
     turn === broken ? Stream.fail(failure) : Stream.fromIterable(script(turn)),
   )
 
-// The tools' answers from cans: every tool states a success as one string, so a can is
-// a string, and what one tool's answer says against another's is nothing the loop can
-// see. A test that wants an act refused, or a tool to fail on its own, plays that in the
-// hooks a can runs behind — the seam takes the failure as the tool's own, whether it
-// stood in for one of the Gates or nothing at all.
+// The tools' answers from cans: every tool that touches the machine states a success as
+// one string, so a can is a string, and what one tool's answer says against another's is
+// nothing the loop can see. `write_plan` touches nothing, so it needs no can: its real
+// handler runs, storing into whatever Plan is around the call. A test that wants an act
+// refused, or a tool to fail on its own, plays that in the hooks a can runs behind — the
+// seam takes the failure as the tool's own, whether it stood in for one of the Gates or
+// nothing at all.
 const canned = toolkit.of({
   bash: () => Effect.succeed('exit 0\nhi'),
   edit_file: () => Effect.succeed('the file is the way the edit left it'),
   glob: () => Effect.succeed('kept.txt'),
   read_file: () => Effect.succeed('kept'),
   write_file: () => Effect.succeed('wrote 4 bytes'),
+  write_plan: WritePlan.handler,
 })
 
 /**
@@ -344,6 +348,7 @@ export const rehearsed = (
             glob: before(hooks, 'glob', answers.glob ?? canned.glob),
             read_file: before(hooks, 'read_file', answers.read_file ?? canned.read_file),
             write_file: before(hooks, 'write_file', answers.write_file ?? canned.write_file),
+            write_plan: before(hooks, 'write_plan', answers.write_plan ?? canned.write_plan),
           }),
         ),
       ),

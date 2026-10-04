@@ -159,6 +159,94 @@ it('a call the agent never ran says so in the same breath', () => {
   })
 })
 
+// A Plan write is the Plan itself, so the line is the Steps, one per row, each behind
+// the mark its status earns; the call is announced as the block rather than the tool.
+it('a Plan write is announced as its Steps, each behind its status mark', () => {
+  expect(
+    transcribe({
+      id: 'c',
+      name: 'write_plan',
+      params: {
+        steps: [
+          { status: 'pending', text: 'read the code' },
+          { status: 'in_progress', text: 'change it' },
+          { status: 'completed', text: 'run the tests' },
+        ],
+      },
+      type: 'tool-call',
+    }),
+  ).toEqual({
+    source: 'call',
+    text: '[ ] read the code\n[>] change it\n[x] run the tests',
+  })
+})
+
+it('a Plan write with no Steps says the Plan was cleared', () => {
+  expect(
+    transcribe({ id: 'c', name: 'write_plan', params: { steps: [] }, type: 'tool-call' }),
+  ).toEqual({ source: 'call', text: 'The Plan was cleared' })
+})
+
+it('the Plan block renders one row per Step', () => {
+  const plan = transcribe({
+    id: 'c',
+    name: 'write_plan',
+    params: {
+      steps: [
+        { status: 'pending', text: 'one' },
+        { status: 'in_progress', text: 'two' },
+      ],
+    },
+    type: 'tool-call',
+  })
+
+  if (plan === undefined) {
+    throw new Error('a tool call always has a line')
+  }
+
+  expect(plain(<Transcript lines={[plan]} />)).toBe('\n[ ] one\n[>] two')
+})
+
+// A write the schema refused comes back as the tool's own failure, so the line names
+// `write_plan` and carries the whole reason the framework composed, rule and path.
+it('a refused Plan write shows which tool failed, and the rule it broke', () => {
+  const refused: ToolResult = Response.toolResultPart({
+    encodedResult: {},
+    id: 'call-7',
+    isFailure: true,
+    name: 'write_plan',
+    preliminary: false,
+    providerExecuted: false,
+    result: AiError.make({
+      method: 'write_plan.handle',
+      module: 'Toolkit',
+      reason: new AiError.ToolParameterValidationError({
+        toolName: 'write_plan',
+        description: 'Plan must have at most one step in progress',
+      }),
+    }),
+  })
+
+  expect(transcribe(refused)).toEqual({
+    source: 'result',
+    text: "write_plan failed: Toolkit.write_plan.handle: Invalid parameters for tool 'write_plan': Plan must have at most one step in progress",
+  })
+})
+
+it('a successful Plan write stays as quiet as any other non-bash result', () => {
+  const acknowledged: ToolResult = Response.toolResultPart({
+    encodedResult: 'Plan written',
+    id: 'call-8',
+    isFailure: false,
+    name: 'write_plan',
+    preliminary: false,
+    providerExecuted: false,
+    result: 'Plan written',
+  })
+
+  expect(transcribe(acknowledged)).toBeUndefined()
+})
+
 const impasse: Impasse = { refusals: 3, type: 'impasse' }
 
 const ENDED =

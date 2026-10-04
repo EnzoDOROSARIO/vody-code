@@ -28,6 +28,8 @@ export default {
     'packages/agent/src/activity.ts',
     'packages/agent/src/request.ts',
     'packages/agent/src/tools/hooks.ts',
+    'packages/agent/src/tools/plan.ts',
+    'packages/agent/src/tools/write-plan.ts',
     'packages/agent/src/verdict.ts',
     'packages/agent/src/workspace.ts',
   ],

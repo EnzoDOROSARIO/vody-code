@@ -51,6 +51,10 @@ export type {
 
 export type { Handlers, Tools } from './tools/index.ts'
 
+// One Step of a Plan, as a `write_plan` call carries it: the screen renders them, and
+// the words Plan and Step mean what the glossary says.
+export type { Step } from './tools/plan.ts'
+
 /**
  * The handlers the agent runs, with both Gates in front of them. The Gates go in
  * under the toolkit, where the hooks are read, so no ungated set is ever built; and
