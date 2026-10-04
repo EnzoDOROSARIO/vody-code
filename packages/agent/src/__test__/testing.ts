@@ -1,5 +1,5 @@
 import { NodeServices } from '@effect/platform-node'
-import { Effect, Exit, FileSystem, Layer, Ref, Stream } from 'effect'
+import { ConfigProvider, Effect, Exit, FileSystem, Layer, Option, Ref, Stream } from 'effect'
 // The one `git init` the suite launches, once per test process; see `initialised`.
 // oxlint-disable-next-line effecttsgo/node-builtin-import -- a process, run once, outside every effect
 import { execFile } from 'node:child_process'
@@ -23,6 +23,7 @@ const execFileP = promisify(execFile)
 import { allowing } from './judging.ts'
 import { answer } from '#turn.ts'
 import { Catalog } from '#catalog.ts'
+import { Home } from '#home.ts'
 import { Session, handlers } from '#index.ts'
 import { before } from '#tools/hooks.ts'
 import { Hooks, toolkit, toolkitLayer } from '#tools/index.ts'
@@ -41,19 +42,39 @@ import type { Handlers, Tools } from '#tools/index.ts'
 // provide this and never touch the workspace's `.agents/skills/`.
 const withoutSkills: Catalog['Service'] = new Map()
 
-// `tools` on the platform, with `workspace` as the Workspace.
+// `tools` on the platform, with `workspace` as the Workspace and `home` as the Home.
 const mounted = (
   tools: Layer.Layer<
     Handlers,
     never,
-    ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
+    ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Home | Path.Path | Workspace
   >,
   workspace: string,
+  home: Option.Option<string> = Option.none(),
 ): Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace> =>
   tools.pipe(
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(Layer.succeed(Workspace, workspace)),
+    Layer.provide(Layer.succeed(Home, home)),
     Layer.provideMerge(Layer.succeed(Catalog, withoutSkills)),
+  )
+
+/**
+ * The home directory a configuration names, through the port's own layer: a test keeps
+ * its case in terms of HOME, and the port's answer — never HOME itself — is what the
+ * Gate is handed.
+ */
+export const homeFrom = (
+  env: Readonly<Record<string, string>>,
+): Effect.Effect<Option.Option<string>> =>
+  Home.pipe(
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+    Effect.provide(
+      Home.layer.pipe(
+        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
+      ),
+    ),
   )
 
 /**
@@ -64,8 +85,9 @@ const mounted = (
 export const judged = (
   workspace: string,
   judge: Layer.Layer<Judge>,
+  home: Option.Option<string> = Option.none(),
 ): Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace> =>
-  mounted(handlers.pipe(Layer.provide(judge)), workspace)
+  mounted(handlers.pipe(Layer.provide(judge)), workspace, home)
 
 // Hooks are read where the toolkit layer is built, so they go in under it. A test that
 // passes none gets `handlers`, the very layer the agent mounts, so every test entry point
@@ -77,10 +99,11 @@ export const judged = (
 export const services = (
   workspace: string,
   hooks?: Hooks,
+  home: Option.Option<string> = Option.none(),
 ): Layer.Layer<NodeServices.NodeServices | Catalog | Handlers | Workspace> =>
   hooks === undefined
-    ? judged(workspace, allowing)
-    : mounted(toolkitLayer.pipe(Layer.provide(Layer.succeed(Hooks, hooks))), workspace)
+    ? judged(workspace, allowing, home)
+    : mounted(toolkitLayer.pipe(Layer.provide(Layer.succeed(Hooks, hooks))), workspace, home)
 
 // The toolkit with nothing provided at the seam, so what the tools run through is the
 // reference's own default. The agent never builds this — `handlers` always puts the Gate

@@ -9,6 +9,7 @@ import type { CodexAuthenticationRequired } from './credentials.ts'
 import { CodexCredentials } from './credentials.ts'
 import * as Codex from './codex.ts'
 import * as Gates from './gates.ts'
+import { Home } from './home.ts'
 import { Judge } from './judge.ts'
 import { Session } from './session.ts'
 import { toolkitLayer } from './tools/index.ts'
@@ -38,6 +39,8 @@ export {
 export { InstructionsUnreadable } from './prompt.ts'
 
 export { SkillUnreadable } from './catalog.ts'
+
+export { Home } from './home.ts'
 
 export { Workspace } from './workspace.ts'
 
@@ -71,7 +74,12 @@ export type { Step } from './tools/plan.ts'
 export const handlers: Layer.Layer<
   Handlers,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Judge | Path.Path | Workspace
+  | ChildProcessSpawner.ChildProcessSpawner
+  | FileSystem.FileSystem
+  | Home
+  | Judge
+  | Path.Path
+  | Workspace
 > = toolkitLayer.pipe(Layer.provide(Gates.layer))
 
 /**
@@ -93,7 +101,7 @@ export const layer: Layer.Layer<
   | SkillUnreadable,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
 > = Session.layer.pipe(
-  Layer.provide(handlers.pipe(Layer.provide(Judge.layer))),
+  Layer.provide(handlers.pipe(Layer.provide(Judge.layer), Layer.provide(Home.layer))),
   Layer.provide(Codex.layer.pipe(Layer.provide(CodexCredentials.fromAuthFile))),
   Layer.provide(FetchHttpClient.layer),
   Layer.provide(Catalog.layer),
