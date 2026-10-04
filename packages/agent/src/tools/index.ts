@@ -16,6 +16,9 @@ import * as WriteFile from './write-file.ts'
 import * as WritePlan from './write-plan.ts'
 
 import type { Tools } from './toolkit.ts'
+
+import { Catalog } from '#catalog.ts'
+
 import type { Workspace } from '#workspace.ts'
 
 // Each tool owns the errors it raises. They are re-exported here so a caller still
@@ -52,14 +55,24 @@ export type Handlers = Tool.HandlersFor<Tools>
 // its way in: a tool is only ever handed over wrapped in whatever hook is at the
 // seam for it. `Files` is provided here because the record of what has been read
 // only means anything if the three tools that read and write files share one.
+//
+// The Catalog is read here, not merely declared where the load handler is: a tool's
+// `dependencies` list types its handler alone, while `Toolkit.toLayer` carries only
+// what its build effect reads. Reading the port is what puts `Catalog` in this layer's
+// requirements — a composition that forgets it is a compile error — and what captures
+// the same instance into every handler's context.
 export const toolkitLayer: Layer.Layer<
   Handlers,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
+  Catalog | ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
 > = toolkit
   .toLayer(
     Effect.gen(function* () {
       const hooks = yield* Hooks
+
+      // The read that names the Catalog above; the instance is not used here, only
+      // captured by the toolkit when the handler context is made.
+      yield* Catalog
 
       const bash = yield* Bash.handlers
       const editFile = yield* EditFile.handlers

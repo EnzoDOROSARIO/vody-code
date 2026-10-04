@@ -70,11 +70,13 @@ export type { Step } from './tools/plan.ts'
  * this is the one gated set, which the package's tests build on as well, so the agent
  * cannot stop running a Gate without that Gate's own tests saying so. The Judge the
  * Gates consult is left open, for `layer` to give it the real one and the tests a
- * scripted one.
+ * scripted one; the Catalog `load_skill` serves is left open the same way, for `layer`
+ * to give the one read at startup and the tests an in-memory one.
  */
 export const handlers: Layer.Layer<
   Handlers,
   never,
+  | Catalog
   | ChildProcessSpawner.ChildProcessSpawner
   | FileSystem.FileSystem
   | Home

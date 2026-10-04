@@ -20,7 +20,7 @@ export class InstructionsUnreadable extends Schema.TaggedError<InstructionsUnrea
   'InstructionsUnreadable',
   { path: Schema.String, reason: Schema.String },
 ) {
-  // This is the one error in the package that reaches a terminal rather than the model,
+  // One of the two errors in the package that reach a terminal rather than the model,
   // and `NodeRuntime.runMain` prints only `cause.message`. Without this the session
   // refuses to start and says nothing about which file, or what went wrong with it.
   override get message(): string {

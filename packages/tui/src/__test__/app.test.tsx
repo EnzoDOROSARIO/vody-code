@@ -110,7 +110,10 @@ it('a Skill load is one row naming the Skill, and a failed one says why', () => 
     {
       lines: [
         { source: 'call', text: 'skill tdd' },
-        { source: 'result', text: 'load_skill failed: no Skill named "missing"' },
+        {
+          source: 'result',
+          text: 'load_skill failed: There is no Skill named "missing". The Catalog holds: tdd',
+        },
       ],
     },
     { columns: 80, rows: 10 },
@@ -119,7 +122,7 @@ it('a Skill load is one row naming the Skill, and a failed one says why', () => 
   expect(bare(state).slice(0, 3)).toEqual([
     '',
     'skill tdd',
-    'load_skill failed: no Skill named "missing"',
+    'load_skill failed: There is no Skill named "missing". The Catalog holds: tdd',
   ])
 })
 

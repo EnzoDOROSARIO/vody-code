@@ -29,7 +29,7 @@ export class SkillUnreadable extends Schema.TaggedError<SkillUnreadable>()('Skil
   path: Schema.String,
   reason: Schema.String,
 }) {
-  // The second error in the package that reaches a terminal rather than the model:
+  // The other error in the package that reaches a terminal rather than the model:
   // `NodeRuntime.runMain` prints only `cause.message`, so both fields have to be in it.
   override get message(): string {
     return `${this.path} could not be read: ${this.reason}`

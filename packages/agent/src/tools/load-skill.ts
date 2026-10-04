@@ -42,9 +42,10 @@ const loadSkill = Tool.make('load_skill', {
   // mode and nothing else, so no test can tell "return" from a mode that is not "error";
   // the rule refusals in load-skill.test.ts pin the returning itself.
   failureMode: 'return',
-  // The one service the handler reads: the Catalog read once at startup. Declared here,
-  // so a composition that forgets it is a compile error rather than a load that fails at
-  // runtime.
+  // The one service the handler reads: the Catalog read once at startup. Declared here
+  // so the handler's own `yield* Catalog` is typed against it; the read in
+  // `tools/index.ts`, where the toolkit layer is built, is what puts the port in the
+  // layer's requirements and captures the instance into the handlers' context.
   // Stryker disable next-line ArrayDeclaration: the list is read by the type system
   // alone — at runtime the handler finds the Catalog in its context either way, and no
   // composition without one typechecks — so no test can tell it from an empty list.

@@ -48,7 +48,12 @@ const mounted = (
   tools: Layer.Layer<
     Handlers,
     never,
-    ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Home | Path.Path | Workspace
+    | Catalog
+    | ChildProcessSpawner.ChildProcessSpawner
+    | FileSystem.FileSystem
+    | Home
+    | Path.Path
+    | Workspace
   >,
   workspace: string,
   home: Option.Option<string> = Option.none(),
