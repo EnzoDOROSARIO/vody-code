@@ -1,6 +1,7 @@
 import { Box, Text, useCursor, useInput, useStdin, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { casesHandled } from './defects.ts'
 import { send, start, transcriptRows, view } from './frame.ts'
 import { mouse } from './mouse.ts'
 
@@ -11,8 +12,7 @@ import type { ReactElement } from 'react'
 export type Ask = (request: string, show: (activity: Activity) => void) => Promise<void>
 
 // One row as the terminal paints it. The frame has already decided what each row is —
-// a Request, a tool, the loop's last word — and this only turns that into Ink's styling,
-// the same way the old Transcript did.
+// a Request, a tool, the loop's last word — and this only turns that into Ink's styling.
 const Painted = ({ row }: { readonly row: Row }): ReactElement => {
   // A row with no words in it still takes its line: Ink drops a text node with nothing
   // in it, which would slide the dock up over the row the frame counted. A bare space
@@ -20,23 +20,31 @@ const Painted = ({ row }: { readonly row: Row }): ReactElement => {
   // across the row's full width, the way the blank line inside a multi-line output does.
   const text = row.text === '' ? ' ' : row.text
 
-  // The loop's last word on a Turn is set in bold, with none of a tool's grey, so it
-  // reads as neither the model talking nor a tool's output.
-  if (row.source === 'loop') {
-    return <Text bold>{text}</Text>
-  }
+  switch (row.source) {
+    case 'loop':
+      // The loop's last word on a Turn is set in bold, with none of a tool's grey, so it
+      // reads as neither the model talking nor a tool's output.
+      return <Text bold>{text}</Text>
 
-  // A tool's output is a grey slab with dim text to sit back from the reply. The gap
-  // above a call is none of these rows, so nothing paints it grey.
-  if (row.source === 'call' || row.source === 'result') {
-    return (
-      <Box backgroundColor="gray">
-        <Text dimColor>{text}</Text>
-      </Box>
-    )
-  }
+    case 'call':
+    case 'result':
+      // A tool's output is a grey slab with dim text to sit back from the reply. The gap
+      // above a call is none of these rows, so nothing paints it grey.
+      return (
+        <Box backgroundColor="gray">
+          <Text dimColor>{text}</Text>
+        </Box>
+      )
 
-  return <Text>{text}</Text>
+    case 'agent':
+    case 'gap':
+    case 'you':
+      return <Text>{text}</Text>
+
+    // Stryker disable next-line ConditionalExpression: every Source has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
+    default:
+      return casesHandled(row.source)
+  }
 }
 
 /**
@@ -53,7 +61,7 @@ const Transcript = ({
 }): ReactElement => (
   <Box flexDirection="column" height={height}>
     {rows.map((row, index) => (
-      // oxlint-disable-next-line react/no-array-index-key -- append-only log
+      // oxlint-disable-next-line react/no-array-index-key -- rows are positional and Painted is stateless
       <Painted key={index} row={row} />
     ))}
   </Box>
@@ -81,24 +89,25 @@ const Composer = ({
 /**
  * The screen as the frame describes it: the Transcript's window, the blank seam that
  * never scrolls, and the framed Composer pinned under both. The terminal cursor is
- * placed at the cell the frame names, and hidden when it names none, so Locked is not
- * a place that looks like typing could land.
+ * placed at the cell the frame names, and hidden when the face is Locked, so Locked is
+ * not a place that looks like typing could land.
  */
 export const ScreenView = ({ screen }: { readonly screen: Screen }): ReactElement => {
-  const { composer, cursor, locked, rows } = view(screen)
+  const shown = view(screen)
   const { setCursorPosition } = useCursor()
 
   // The hook syncs through an insertion effect, so the cell has to be handed over during
   // render; from an effect of our own it would land a paint late.
-  // Stryker disable next-line ConditionalExpression: the cell is handed to Ink, and a string render never reads the cursor it keeps, so the guard's choice is invisible
+  // Stryker disable next-line CallExpression: the call hands the cell to Ink, and a string render never reads the cursor Ink keeps, so dropping it is invisible
+  // Stryker disable next-line ConditionalExpression: the cell is handed to Ink, and a string render never reads the cursor it keeps, so the Locked choice is invisible
   // Stryker disable next-line ObjectLiteral: the cell is handed to Ink, and a string render never reads the object it keeps, so the object's shape is invisible
-  setCursorPosition(cursor === undefined ? undefined : { x: cursor.column, y: cursor.row })
+  setCursorPosition(shown.locked ? undefined : { x: shown.cursor.column, y: shown.cursor.row })
 
   return (
     <Box flexDirection="column" width={screen.viewport.columns}>
-      <Transcript height={transcriptRows(screen.viewport)} rows={rows} />
+      <Transcript height={transcriptRows(screen.viewport)} rows={shown.rows} />
       <Text> </Text>
-      <Composer locked={locked} text={composer} width={screen.viewport.columns} />
+      <Composer locked={shown.locked} text={shown.composer} width={screen.viewport.columns} />
     </Box>
   )
 }
@@ -113,10 +122,10 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   // painted would otherwise land on a stale screen.
   const latest = useRef<Screen>(screen)
 
-  // Stryker disable ArrayDeclaration: the dependency lists below hold only a ref, a setter
-  // and the window, which React keeps stable; no string render can vary them.
+  // Stryker disable ArrayDeclaration: a string render never resizes, so the dependency
+  // lists are never compared, whether they hold the window or not.
   // Stryker disable next-line BlockStatement: the callback runs only on a terminal event — a keystroke or a resize — and no test can deliver one
-  const step = useCallback((event: ScreenEvent): string | undefined => {
+  const dispatch = useCallback((event: ScreenEvent): string | undefined => {
     const { request, screen: next } = send(latest.current, event)
 
     latest.current = next
@@ -134,8 +143,8 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   // Stryker disable next-line BlockStatement: the viewport already matches the window a string render reports, so emptying the resize step changes nothing
   // Stryker disable next-line CallExpression: the viewport already matches the window a string render reports, so dropping the effect call changes nothing
   useEffect(() => {
-    step({ type: 'resize', viewport: window })
-  }, [step, window])
+    dispatch({ type: 'resize', viewport: window })
+  }, [dispatch, window])
   // Stryker restore ArrayDeclaration
 
   // The wheel is how the Transcript is read, and a terminal only sends its reports while
@@ -168,7 +177,7 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   // Stryker restore StringLiteral
 
   const show = (activity: Activity): void => {
-    step({ activity, type: 'activity' })
+    dispatch({ activity, type: 'activity' })
   }
 
   // Stryker disable next-line CallExpression: the hook attaches the handler to a terminal,
@@ -178,14 +187,14 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
     (input, key) => {
       const report = mouse(input)
 
-      // A click, a drag, or a sideways roll is the mouse and nothing else: it is dropped
-      // here rather than left to land in the Draft as the raw sequence it arrived as. The
-      // wheel is the one report with something to do.
+      // A click or a drag is the mouse and nothing else: it is dropped here rather than
+      // left to land in the Draft as the raw sequence it arrived as. A sideways roll is
+      // a notch the frame declines to scroll.
       if (report?.type === 'dropped') {
         return
       }
 
-      const request = step(report ?? { chord: key, input, type: 'key' })
+      const request = dispatch(report ?? { chord: key, input, type: 'key' })
 
       if (request === undefined) {
         return
@@ -196,8 +205,8 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
       // the loop's voice, and the Composer comes back either way, so nobody is left waiting
       // on a Turn that already ended.
       ask(request, show)
-        .catch((error: Error) => step({ message: error.message, type: 'rejected' }))
-        .finally(() => step({ type: 'ended' }))
+        .catch((error: Error) => dispatch({ message: error.message, type: 'rejected' }))
+        .finally(() => dispatch({ type: 'ended' }))
     },
     // Stryker disable next-line ObjectLiteral: the option gates the handler on a terminal
     // being attached, which a string render never has, so with it or without it the

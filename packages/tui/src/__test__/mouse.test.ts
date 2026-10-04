@@ -43,38 +43,9 @@ it('anything else the mouse sends is dropped', () => {
   expect(mouse('[<32;10;10M')).toEqual({ type: 'dropped' })
 })
 
-// The X10 report as Ink hands it over: the leading escape stripped, leaving `[M` and
-// three characters — the button, the column and the row, each biased by 32.
-const x10 = (button: number, column = 10, row = 10): string =>
-  `[M${String.fromCharCode(32 + button)}${String.fromCharCode(32 + column)}${String.fromCharCode(32 + row)}`
-
-// A terminal that ignores `?1006` sends the older X10 report: the same button codes,
-// each character biased by 32.
-it('an X10 wheel report is the notch it rolled', () => {
-  expect(mouse(x10(64))).toEqual({ notch: 'up', type: 'wheel' })
-  expect(mouse(x10(65))).toEqual({ notch: 'down', type: 'wheel' })
-})
-
-it('a sideways X10 roll is a notch that scrolls nothing', () => {
-  expect(mouse(x10(66))).toEqual({ notch: 'sideways', type: 'wheel' })
-  expect(mouse(x10(67))).toEqual({ notch: 'sideways', type: 'wheel' })
-})
-
-// The X10 button field carries the modifiers the SGR one does: 64 + 4 is the wheel
-// rolled up with shift down, and the modifiers are masked off the same way.
-it('a modified X10 wheel report is still the notch it rolled', () => {
-  expect(mouse(x10(68))).toEqual({ notch: 'up', type: 'wheel' })
-  expect(mouse(x10(72))).toEqual({ notch: 'up', type: 'wheel' })
-  expect(mouse(x10(80))).toEqual({ notch: 'up', type: 'wheel' })
-  expect(mouse(x10(69))).toEqual({ notch: 'down', type: 'wheel' })
-})
-
-it('an X10 click is dropped', () => {
-  expect(mouse(x10(0))).toEqual({ type: 'dropped' })
-  expect(mouse(x10(32))).toEqual({ type: 'dropped' })
-})
-
-// A keystroke is not the mouse: the shell leaves it to the frame as a key.
+// A keystroke is not the mouse: the shell leaves it to the frame as a key. The older
+// X10 report Ink splits at `ESC[M` is not read here either — it never reaches this
+// parser whole.
 it('a key is not the mouse', () => {
   expect(mouse('a')).toBeUndefined()
   expect(mouse('')).toBeUndefined()
@@ -83,11 +54,8 @@ it('a key is not the mouse', () => {
   expect(mouse('[Mab')).toBeUndefined()
 })
 
-// The report is read whole: a paste that carries one beside other text is not the mouse,
-// and an X10 `[M` with more than three characters after it is not a whole report.
+// The report is read whole: a paste that carries one beside other text is not the mouse.
 it('a report holding anything else is not a mouse report', () => {
   expect(mouse('x[<64;10;10M')).toBeUndefined()
   expect(mouse('[<64;10;10Mx')).toBeUndefined()
-  expect(mouse('x[Mabc')).toBeUndefined()
-  expect(mouse('[Mabcde')).toBeUndefined()
 })

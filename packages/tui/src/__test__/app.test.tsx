@@ -1,7 +1,6 @@
 import { expect, it } from '@effect/vitest'
 
 import { ScreenView } from '#app.tsx'
-import { start } from '#frame.ts'
 import { BOLD, CYAN, DIM, GREY_BACKGROUND, colourful, plain, screen } from './testing.ts'
 
 import type { Screen } from '#frame.ts'
@@ -11,7 +10,7 @@ const VIEWPORT = { columns: 40, rows: 10 }
 const bare = (state: Screen): ReadonlyArray<string> =>
   plain(<ScreenView screen={state} />, VIEWPORT.columns).split('\n')
 
-const painted = (state: Screen): ReadonlyArray<string> =>
+const styled = (state: Screen): ReadonlyArray<string> =>
   colourful(<ScreenView screen={state} />, VIEWPORT.columns).split('\n')
 
 // The idle Composer is the frame's content row: the chevron and the Draft, inside the
@@ -27,17 +26,16 @@ it('the idle Composer is framed on the last rows, with the chevron and the Draft
 // A Draft longer than the row slides, so the end — where the next character lands —
 // is always the part in view.
 it('a long Draft slides, so its end stays in the frame', () => {
-  const lines = bare(
-    screen({ draft: 'abcdefghijklmnop', viewport: { columns: 12, rows: 6 } }, VIEWPORT),
-  )
+  const lines = bare(screen({ draft: 'abcdefghijklmnop' }, { columns: 12, rows: 6 }))
 
   expect(lines.at(-2)).toBe('│ghijklmnop│')
 })
 
 // Locked the content row is a still ellipsis: dim, the way a tool's text is, but with
-// no slab behind it and no chevron, so it reads as a face and not as a tool or a prompt.
+// no slab behind it and no chevron, so it reads as a face and not as a tool or the idle
+// Composer.
 it('the Locked face is a dim ellipsis, with no chevron and no slab', () => {
-  const content = painted(screen({ locked: true }, VIEWPORT)).at(-2) ?? ''
+  const content = styled(screen({ locked: true }, VIEWPORT)).at(-2) ?? ''
 
   expect(content).toContain('…')
   expect(content).toContain(DIM)
@@ -48,7 +46,7 @@ it('the Locked face is a dim ellipsis, with no chevron and no slab', () => {
 // A tool's output is a grey slab with dim text; the blank row above the call is a row
 // of the frame painted by nobody, so the slab does not sit against the seam.
 it('a tool is a grey slab, and the gap above it is bare', () => {
-  const lines = painted(
+  const lines = styled(
     screen(
       {
         lines: [
@@ -68,10 +66,10 @@ it('a tool is a grey slab, and the gap above it is bare', () => {
   expect(lines[3]).toContain(GREY_BACKGROUND)
 })
 
-// The seam between the Transcript's window and the frame is the dock's own blank row:
-// it stays put — and stays unpainted — however the Transcript ends.
-it('the seam above the frame is blank, never a slab', () => {
-  const lines = painted(screen({ lines: [{ source: 'result', text: 'exit 0' }] }, VIEWPORT))
+// The seam between the Transcript's window and the Composer's border is the dock's own
+// blank row: it stays put — and stays unpainted — however the Transcript ends.
+it('the seam above the Composer is blank, never a slab', () => {
+  const lines = styled(screen({ lines: [{ source: 'result', text: 'exit 0' }] }, VIEWPORT))
 
   expect(lines.at(-4)).toBe('')
   expect(lines.at(-3)).toContain('┌')
@@ -99,21 +97,24 @@ it('the agent is read as markdown, and nobody else is', () => {
   expect(colourful(<ScreenView screen={state} />, VIEWPORT.columns)).toContain(CYAN)
 })
 
-// A Turn that answered ends with the prompt coming back, and so does one that reached an
-// Impasse, so the second has to say so in a way that reads as the loop and not the model.
+// A Turn that answered ends with the Composer coming back, and so does one that reached
+// an Impasse, so the second has to say so in a way that reads as the loop and not the
+// model.
 const ENDED =
   'The Turn ended without an answer: the Gates refused 3 acts with none allowed in between, so the agent stopped trying. Ask again another way, or do this part yourself.'
 
 const WIDE = { columns: 200, rows: 6 }
 
 it('an Impasse stands out from the agent and its tools', () => {
-  const state: Screen = {
-    ...start(WIDE),
-    lines: [
-      { source: 'agent', text: 'let me try' },
-      { source: 'loop', text: ENDED },
-    ],
-  }
+  const state = screen(
+    {
+      lines: [
+        { source: 'agent', text: 'let me try' },
+        { source: 'loop', text: ENDED },
+      ],
+    },
+    WIDE,
+  )
 
   const lines = colourful(<ScreenView screen={state} />, WIDE.columns).split('\n')
 
@@ -129,13 +130,15 @@ const BROKE =
   'The Turn ended without an answer: the model broke down — OpenAI.streamText: Rate limit exceeded. Ask again, or do this part yourself.'
 
 it('a Breakdown stands out the way an Impasse does', () => {
-  const state: Screen = {
-    ...start(WIDE),
-    lines: [
-      { source: 'agent', text: 'let me try' },
-      { source: 'loop', text: BROKE },
-    ],
-  }
+  const state = screen(
+    {
+      lines: [
+        { source: 'agent', text: 'let me try' },
+        { source: 'loop', text: BROKE },
+      ],
+    },
+    WIDE,
+  )
 
   const lines = colourful(<ScreenView screen={state} />, WIDE.columns).split('\n')
 

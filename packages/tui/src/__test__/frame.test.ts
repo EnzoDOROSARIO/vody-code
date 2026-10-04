@@ -2,12 +2,15 @@ import { expect, it } from '@effect/vitest'
 import { AiError, Response } from 'effect/unstable/ai'
 
 import { screen, unpainted } from '#__test__/testing.ts'
-import { face, send, transcribe, transcriptRows, view, written } from '#frame.ts'
+import { send, start, transcriptRows, view } from '#frame.ts'
+import { transcribe, written } from '#transcript.ts'
 
 import { CommandRefused } from 'agent'
 
 import type { Breakdown, Impasse, ToolResult } from 'agent'
-import type { Chord, Line, Screen, ScreenEvent } from '#frame.ts'
+import type { Chord, Notch, Screen, ScreenEvent } from '#frame.ts'
+import type { Line } from '#transcript.ts'
+import type { ScreenParts } from '#__test__/testing.ts'
 
 const ranBash: ToolResult = Response.toolResultPart({
   encodedResult: 'exit 0\nhi',
@@ -143,7 +146,7 @@ const impasse: Impasse = { refusals: 3, type: 'impasse' }
 const ENDED =
   'The Turn ended without an answer: the Gates refused 3 acts with none allowed in between, so the agent stopped trying. Ask again another way, or do this part yourself.'
 
-// A Turn that answered ends with the prompt coming back, and so does one that reached an
+// A Turn that answered ends with the Composer coming back, and so does one that reached an
 // Impasse, so the second has to say so, or the person waits for an answer that is not
 // coming.
 it('a Turn that reached an Impasse says so, and says it is over', () => {
@@ -241,17 +244,29 @@ const reply = (id: string, text: string): ScreenEvent => ({
  * three-row window, so the latest line sits at offset seven and a notch has room to move
  * in both directions.
  */
-const tall = (offset: number, parts: Partial<Screen> = {}): Screen =>
-  screen({
-    lines: ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'].map(
-      (text) => ({ source: 'you' as const, text: `> ${text}` }),
-    ),
-    offset,
-    viewport: { columns: 80, rows: 7 },
-    ...parts,
-  })
+const tall = (offset: number, parts: ScreenParts = {}): Screen =>
+  screen(
+    {
+      lines: ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'].map(
+        (text) => ({ source: 'you' as const, text: `> ${text}` }),
+      ),
+      offset,
+      ...parts,
+    },
+    { columns: 80, rows: 7 },
+  )
 
-const wheel = (notch: 'down' | 'sideways' | 'up'): ScreenEvent => ({ notch, type: 'wheel' })
+const wheel = (notch: Notch): ScreenEvent => ({ notch, type: 'wheel' })
+
+it('the screen starts empty, unlocked, and at the top', () => {
+  expect(start({ columns: 80, rows: 24 })).toEqual({
+    draft: '',
+    lines: [],
+    locked: false,
+    offset: 0,
+    viewport: { columns: 80, rows: 24 },
+  })
+})
 
 it('a printable key lands at the end of the Draft', () => {
   const { screen: next } = send(screen({ draft: 'h' }), typed('i'))
@@ -280,15 +295,39 @@ it('backspace on an empty Draft leaves it empty', () => {
   ).toEqual(screen())
 })
 
-it('a modifier chord types nothing', () => {
+// A chord held with Ctrl or Meta is not typing, and Ink reports some of them under a
+// named key: Alt+Return arrives as Return with meta, Alt+Backspace as backspace with
+// meta, and Ctrl+J as a bare newline with no chord at all. None of them reaches the
+// Draft, and none of them acts as the key it was named after.
+it('a modifier chord types nothing, and does not act as the key it is named after', () => {
+  const draft = screen({ draft: 'hi' })
+
+  expect(send(draft, { chord: chord({ ctrl: true }), input: 'c', type: 'key' }).screen).toEqual(
+    draft,
+  )
+  expect(send(draft, { chord: chord({ meta: true }), input: 'v', type: 'key' }).screen).toEqual(
+    draft,
+  )
   expect(
-    send(screen({ draft: 'hi' }), { chord: chord({ ctrl: true }), input: 'c', type: 'key' }).screen
-      .draft,
-  ).toBe('hi')
+    send(draft, { chord: chord({ meta: true, return: true }), input: '', type: 'key' }),
+  ).toEqual({ screen: draft })
   expect(
-    send(screen({ draft: 'hi' }), { chord: chord({ meta: true }), input: 'v', type: 'key' }).screen
-      .draft,
-  ).toBe('hi')
+    send(draft, { chord: chord({ backspace: true, meta: true }), input: '', type: 'key' }).screen,
+  ).toEqual(draft)
+  expect(send(draft, { chord: chord({}), input: '\n', type: 'key' }).screen).toEqual(draft)
+})
+
+// A space is printable and types; the control characters beside it do not, and a paste
+// of several characters is one input rather than a control character, whatever it starts
+// with.
+it('a space types while a control character does not', () => {
+  const draft = screen({ draft: 'hi' })
+
+  expect(send(draft, typed(' ')).screen).toEqual(screen({ draft: 'hi ' }))
+  expect(send(draft, typed('\x1f')).screen).toEqual(draft)
+  expect(send(draft, typed('\x7f')).screen).toEqual(draft)
+  expect(send(draft, typed('ab')).screen).toEqual(screen({ draft: 'hiab' }))
+  expect(send(draft, typed('\x01ab')).screen).toEqual(screen({ draft: 'hi\x01ab' }))
 })
 
 it('Return on a blank Draft submits nothing and keeps the blank', () => {
@@ -297,10 +336,10 @@ it('Return on a blank Draft submits nothing and keeps the blank', () => {
 })
 
 it('Return on a non-blank Draft echoes it as typed, clears the Draft, Locks, and yields the Request', () => {
-  const step = send(screen({ draft: 'who am I' }), RETURN)
+  const submitted = send(screen({ draft: 'who am I' }), RETURN)
 
-  expect(step.request).toBe('who am I')
-  expect(step.screen).toEqual(
+  expect(submitted.request).toBe('who am I')
+  expect(submitted.screen).toEqual(
     screen({ lines: [{ source: 'you', text: '> who am I' }], locked: true }),
   )
 })
@@ -308,16 +347,16 @@ it('Return on a non-blank Draft echoes it as typed, clears the Draft, Locks, and
 // The echo keeps the Request's spaces and all: what is shown back is what was typed,
 // not a trimmed version of it.
 it('the Request is echoed exactly as typed', () => {
-  const step = send(screen({ draft: '  say hi  ' }), RETURN)
+  const submitted = send(screen({ draft: '  say hi  ' }), RETURN)
 
-  expect(step.request).toBe('  say hi  ')
-  expect(step.screen.lines).toEqual([{ source: 'you', text: '>   say hi  ' }])
+  expect(submitted.request).toBe('  say hi  ')
+  expect(submitted.screen.lines).toEqual([{ source: 'you', text: '>   say hi  ' }])
 })
 
 // A Turn in flight is not a place the draft can change: typing, backspace, and Return
 // alike do nothing, so the first token cannot unlock a queue.
 it('every key is ignored while the Composer is Locked', () => {
-  const locked = screen({ draft: 'hi', locked: true })
+  const locked = screen({ locked: true })
 
   expect(send(locked, typed('x')).screen).toEqual(locked)
   expect(send(locked, RETURN)).toEqual({ screen: locked })
@@ -367,18 +406,7 @@ it("a rejection is said in the loop's voice, unlocks, and stays in view", () => 
   expect(view(next).rows.at(-1)).toEqual({ source: 'loop', text: 'the session broke' })
 })
 
-// The face is the Composer's one content row. The idle face matches the echo a
-// submitted Request leaves: the chevron and the Draft, in ordinary text.
-it('the idle face is the chevron and the Draft', () => {
-  expect(face(screen({ draft: 'who am I' }))).toBe('> who am I')
-})
-
-// While Locked the face is a still ellipsis with no chevron.
-it('the Locked face is the waiting ellipsis, not a chevron', () => {
-  expect(face(screen({ draft: 'half typed', locked: true }))).toBe('…')
-})
-
-// The dock is claimed before the Transcript is given anything: the seam, the frame's
+// The dock is claimed before the Transcript is given anything: the seam, the Composer's
 // top border, its one content row, and its bottom border. A window too short for the
 // dock still claims it in full — the terminal clips the Transcript, never the place
 // the next Request is typed.
@@ -399,7 +427,7 @@ it('a short Transcript starts at the top', () => {
 // the window holds, the top rows leave the screen and the tail stays. An Activity while
 // Following pins the window to the new end, so the reply being written is on screen.
 it('a long Transcript shows its tail, and an Activity keeps the end in view', () => {
-  let state = screen({ viewport: { columns: 80, rows: 7 } })
+  let state = screen({}, { columns: 80, rows: 7 })
 
   for (const text of ['one', 'two', 'three', 'four']) {
     state = send(state, reply(text, text)).screen
@@ -427,7 +455,7 @@ it('the empty Draft leaves the cursor just after the chevron', () => {
 // The Composer is one row: a Draft longer than the row slides so its end stays visible,
 // and the cursor lands on the last content cell rather than off the frame.
 it('a Draft longer than the row slides, with the cursor on the last cell', () => {
-  const shown = view(screen({ draft: 'abcdefghijklmnop', viewport: { columns: 10, rows: 6 } }))
+  const shown = view(screen({ draft: 'abcdefghijklmnop' }, { columns: 10, rows: 6 }))
 
   expect(shown.composer).toBe('ijklmnop')
   expect(shown.cursor).toEqual({ row: 4, column: 8 })
@@ -436,14 +464,14 @@ it('a Draft longer than the row slides, with the cursor on the last cell', () =>
 // The slide is measured in the cells the terminal shows: an emoji is two of them, and
 // counting characters would hide the end two cells early.
 it('the slide is measured in cells, not characters', () => {
-  const shown = view(screen({ draft: '🎉🎉', viewport: { columns: 6, rows: 6 } }))
+  const shown = view(screen({ draft: '🎉🎉' }, { columns: 6, rows: 6 }))
 
   expect(shown.composer).toBe('🎉🎉')
   expect(shown.cursor).toEqual({ row: 4, column: 4 })
 })
 
 it('the Locked face is a still ellipsis and names no cursor cell', () => {
-  const shown = view(screen({ draft: 'half typed', locked: true }))
+  const shown = view(screen({ locked: true }))
 
   expect(shown.composer).toBe('…')
   expect(shown.locked).toBe(true)
@@ -454,18 +482,17 @@ it('the Locked face is a still ellipsis and names no cursor cell', () => {
 // end however far the last one had scrolled: the echo and the reply are what is being
 // waited on, and they are what is shown.
 it('Return pins the echo and the tail of the Transcript in view', () => {
-  let state = screen({ viewport: { columns: 80, rows: 7 }, draft: 'who am I' })
+  let state = screen({ draft: 'who am I' }, { columns: 80, rows: 7 })
 
   for (const text of ['one', 'two', 'three', 'four']) {
     state = send(state, reply(text, text)).screen
   }
 
-  const step = send(state, RETURN)
+  const submitted = send(state, RETURN)
 
-  expect(step.request).toBe('who am I')
-  expect(step.screen.draft).toBe('')
-  expect(step.screen.locked).toBe(true)
-  expect(view(step.screen).rows).toEqual([
+  expect(submitted.request).toBe('who am I')
+  expect(submitted.screen.locked).toBe(true)
+  expect(view(submitted.screen).rows).toEqual([
     { source: 'agent', text: 'three' },
     { source: 'agent', text: 'four' },
     { source: 'you', text: '> who am I' },
@@ -476,7 +503,7 @@ it('Return pins the echo and the tail of the Transcript in view', () => {
 // and the window ends pinned to the new end, so the latest line stays where a Following
 // screen keeps it.
 it('a resize lays the Transcript out to the new width and pins to the new end', () => {
-  let state = screen({ viewport: { columns: 40, rows: 7 } })
+  let state = screen({}, { columns: 40, rows: 7 })
 
   for (const text of ['a', '0123456789', 'b']) {
     state = send(state, reply(text, text)).screen
@@ -492,9 +519,9 @@ it('a resize lays the Transcript out to the new width and pins to the new end', 
   ])
 })
 
-// Nothing but Return touches the offset: the wheel is #18's, and no key is a scroll.
+// No key is a scroll: only the wheel moves the window.
 it('no key moves the window', () => {
-  let state = screen({ viewport: { columns: 80, rows: 7 } })
+  let state = screen({}, { columns: 80, rows: 7 })
 
   for (const text of ['one', 'two', 'three', 'four']) {
     state = send(state, reply(text, text)).screen
@@ -560,6 +587,28 @@ it('leaving the latest line Holds it: new lines stay off the screen', () => {
   ])
 })
 
+// A reply is laid out again on every fragment, and markdown can lay out shorter once a
+// construct closes — an unclosed code span in a quotation collapses to one paragraph
+// when its closing backtick arrives. A Held offset is clamped to the new end rather
+// than left pointing past it, so the window never slices into empty space; a clamp that
+// lands on the end is Following by definition.
+it('a reply that lays out shorter does not leave a Held offset past the end', () => {
+  const held = screen(
+    {
+      lines: [...tall(0).lines, { id: 'text-1', source: 'agent', text: '> a `b\n> c\n> d' }],
+      offset: 9,
+    },
+    { columns: 40, rows: 7 },
+  )
+
+  expect(view(held).rows).toHaveLength(3)
+
+  const next = send(held, reply('text-1', '`')).screen
+
+  expect(next.offset).toBe(8)
+  expect(view(next).rows).toHaveLength(3)
+})
+
 // Scrolling back onto the latest line is catching up, and a caught-up reader stays
 // caught up: the next line appends into view.
 it('scrolling onto the latest line resumes Following', () => {
@@ -577,11 +626,11 @@ it('scrolling onto the latest line resumes Following', () => {
 // Submitting is a jump to the end however far the reading had left it: the echo and the
 // reply are what the Turn is being waited on for, so they are what is shown.
 it('submitting pins the echo and the end in view even from Held', () => {
-  const step = send(tall(4, { draft: 'who am I' }), RETURN)
+  const submitted = send(tall(4, { draft: 'who am I' }), RETURN)
 
-  expect(step.request).toBe('who am I')
-  expect(step.screen.offset).toBe(8)
-  expect(view(step.screen).rows).toEqual([
+  expect(submitted.request).toBe('who am I')
+  expect(submitted.screen.offset).toBe(8)
+  expect(view(submitted.screen).rows).toEqual([
     { source: 'you', text: '> nine' },
     { source: 'you', text: '> ten' },
     { source: 'you', text: '> who am I' },
@@ -615,8 +664,8 @@ it('a resize that does not reveal the latest line leaves it Held, not past the e
   expect(view(narrower).rows).toEqual(view(held).rows)
 })
 
-// The blank row above a call is a margin today, so it is a row of the frame like any
-// other — one that is painted by nobody, which is what keeps it out of the slab.
+// The blank row above a call is a gap row like any other — painted by nobody, which is
+// what keeps it out of the slab.
 it('a call is set off by a blank row of its own', () => {
   const shown = view(
     screen({
@@ -679,10 +728,10 @@ it('an agent line with nothing in it takes up no room', () => {
 it('a list item that wraps continues under its own words', () => {
   const shown = unpainted(() =>
     view(
-      screen({
-        lines: [{ source: 'agent', text: '- alpha beta gamma delta' }],
-        viewport: { columns: 14, rows: 24 },
-      }),
+      screen(
+        { lines: [{ source: 'agent', text: '- alpha beta gamma delta' }] },
+        { columns: 14, rows: 24 },
+      ),
     ),
   )
 
@@ -711,10 +760,10 @@ it('a nested list starts indented under the item above it', () => {
 it('a wrapped row keeps the space a line break left in front of it', () => {
   const shown = unpainted(() =>
     view(
-      screen({
-        lines: [{ source: 'agent', text: '- alpha beta gamma delta' }],
-        viewport: { columns: 12, rows: 24 },
-      }),
+      screen(
+        { lines: [{ source: 'agent', text: '- alpha beta gamma delta' }] },
+        { columns: 12, rows: 24 },
+      ),
     ),
   )
 
@@ -728,10 +777,10 @@ it('a wrapped row keeps the space a line break left in front of it', () => {
 it('a quotation is barred down its left and wraps clear of the bar', () => {
   const shown = unpainted(() =>
     view(
-      screen({
-        lines: [{ source: 'agent', text: '> one two three four\n> last' }],
-        viewport: { columns: 12, rows: 24 },
-      }),
+      screen(
+        { lines: [{ source: 'agent', text: '> one two three four\n> last' }] },
+        { columns: 12, rows: 24 },
+      ),
     ),
   )
 

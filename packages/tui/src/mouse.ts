@@ -1,9 +1,10 @@
 import type { Notch } from './frame.ts'
 
 /**
- * One input from the terminal, as far as the mouse is concerned: the notch when the
- * wheel rolled, or nothing to do for everything else the mouse sends — a click, a drag,
- * a sideways roll. `undefined` is not the mouse at all: it is a key.
+ * One input from the terminal, as far as the mouse is concerned: the wheel's notch when
+ * the wheel rolled — a sideways roll included, which the frame is what declines to
+ * scroll — or `dropped` for everything else the mouse sends, a click or a drag.
+ * `undefined` is not the mouse at all: it is a key.
  *
  * The shell reads the reports back because Ink has no mouse support. It hands them to
  * `useInput` as raw sequences, and one left unfiltered would land in the Draft as the
@@ -16,11 +17,6 @@ export type Mouse = { readonly notch: Notch; readonly type: 'wheel' } | { readon
 // `[<`, the button, the column and the row. A press ends `M` and a release `m`. Anchored
 // so that a paste which happens to hold one is not read as the mouse.
 const SGR = /^\[<(\d+);\d+;\d+[Mm]$/
-
-// The X10 mouse report a terminal sends when it ignored `?1006`: `[M` and exactly three
-// characters — the button, the column and the row, each biased by 32. Anchored, so a
-// paste that happens to hold one is not read as the mouse.
-const X10 = /^\[M[\s\S]{3}$/
 
 // The button field carries the modifiers the roll was made with — shift 4, meta 8, and
 // ctrl 16 — beside the wheel's own code, so they are masked off: a modified roll is
@@ -43,13 +39,5 @@ const notched = (button: number): Mouse => {
 export const mouse = (input: string): Mouse | undefined => {
   const report = SGR.exec(input)
 
-  if (report !== null) {
-    return notched(Number(report[1]))
-  }
-
-  if (X10.test(input)) {
-    return notched(input.charCodeAt(2) - 32)
-  }
-
-  return undefined
+  return report === null ? undefined : notched(Number(report[1]))
 }

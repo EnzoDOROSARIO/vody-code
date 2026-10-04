@@ -1,133 +1,12 @@
-import { Predicate } from 'effect'
 import stringWidth from 'string-width'
 
 import { casesHandled } from './defects.ts'
-import { layout, wrapped } from './markdown/layout.ts'
+import { layout } from './markdown/layout.ts'
+import { transcribe, written } from './transcript.ts'
+import { wrapped } from './wrapping.ts'
 
-import type { Activity, Breakdown, Impasse, ToolCall, ToolFailure, ToolResult } from 'agent'
-
-/**
- * Who put a line in the transcript, which is all its styling depends on. `loop` is the
- * agent too, but the turn loop speaking rather than the model: the Turn is over, and not
- * because the model had finished — an Impasse, or a Breakdown.
- */
-export type Source = 'agent' | 'call' | 'loop' | 'result' | 'you'
-
-/**
- * One line of the transcript.
- *
- * A line the agent is still writing carries the id of the block of prose it holds, so
- * the next fragment of that block knows to land on the end of it. Everything else — a
- * request, a tool, a turn that broke — arrives whole and has no id to carry.
- */
-export type Line = {
-  readonly id?: string
-  readonly source: Source
-  readonly text: string
-}
-
-const PREVIEW_CHARACTERS = 200
-
-// The agent reports that it called `bash` with a command; saying that back as a
-// shell prompt is this screen's business, and every tool gets the phrasing that
-// suits it. Adding a tool to the agent lands here as a missing branch.
-const asked = (call: ToolCall): string => {
-  switch (call.name) {
-    case 'bash':
-      return `$ ${call.params.command}`
-    case 'edit_file':
-      return `edit ${call.params.path}`
-    case 'glob':
-      return `glob ${call.params.pattern}`
-    case 'read_file':
-      return `read ${call.params.path}`
-    case 'write_file':
-      return `write ${call.params.path}`
-    // Stryker disable next-line ConditionalExpression: every ToolCall has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
-    default:
-      return casesHandled(call)
-  }
-}
-
-// Every tool states a failure in one string field, and so does a call the agent
-// declined to run. Only the model's own errors put something else there, and they
-// carry the sentence in `message` instead.
-const because = (failure: ToolFailure): string =>
-  Predicate.isTagged(failure, 'AiError') ? failure.message : failure.reason
-
-// A tool that worked has usually said what it did in the line announcing it, so only
-// `bash` is worth quoting back. A tool that failed has not been heard from at all.
-//
-// What `bash` returns opens with its exit status, so that status is what the first
-// line of the quote shows. The `Console.log` this replaced previewed the raw output
-// and left the status out; showing it costs a few characters of the preview and is
-// worth them. Anything narrower would mean reading a shape the agent composed for the
-// model, which is the coupling this screen exists to avoid.
-const gave = (result: ToolResult): string | undefined => {
-  if (result.isFailure) {
-    return `${result.name} failed: ${because(result.result)}`
-  }
-
-  return result.name === 'bash' ? result.result.slice(0, PREVIEW_CHARACTERS) : undefined
-}
-
-// Both of the loop's endings are said in one voice — the Turn is over, with no answer —
-// and they differ in why it ended, and in how asking again could help: an Impasse wants
-// the request asked another way, where a model that broke may just answer the same one.
-const ended = (why: string, again: string): string =>
-  `The Turn ended without an answer: ${why}. ${again}, or do this part yourself.`
-
-// A Turn that reached an Impasse hands the prompt back just as one that answered does, so
-// the line has to say it is over and why, or the person sits waiting for an answer that is
-// not coming. The refusals themselves are the lines above it, each with its reasons.
-const stopped = (impasse: Impasse): string =>
-  ended(
-    `the Gates refused ${impasse.refusals} acts with none allowed in between, so the agent stopped trying`,
-    'Ask again another way',
-  )
-
-// A Turn the model broke ends the same way, and the line says why in the words the
-// failure gave it: nothing the model wrote after the break is coming either.
-const broke = (breakdown: Breakdown): string =>
-  ended(`the model broke down — ${breakdown.reason}`, 'Ask again')
-
-export const transcribe = (activity: Activity): Line | undefined => {
-  switch (activity.type) {
-    case 'reply':
-      return { id: activity.id, source: 'agent', text: activity.text }
-    case 'tool-call':
-      return { source: 'call', text: asked(activity) }
-    case 'tool-result': {
-      const shown = gave(activity)
-
-      return shown === undefined ? undefined : { source: 'result', text: shown }
-    }
-
-    case 'impasse':
-      return { source: 'loop', text: stopped(activity) }
-    case 'breakdown':
-      return { source: 'loop', text: broke(activity) }
-    // Stryker disable next-line ConditionalExpression: every Activity has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
-    default:
-      return casesHandled(activity)
-  }
-}
-
-// The agent's answer arrives a fragment at a time, so the transcript grows two ways: a
-// fragment of the block the last line is already holding lengthens that line, and
-// everything else lands under it. The first is what a reply being typed out is made of.
-//
-// Matching on the id rather than on the source is what keeps the second block of a
-// reply, and a turn that broke, from being swallowed by the line above them.
-export const written = (lines: ReadonlyArray<Line>, entry: Line): ReadonlyArray<Line> => {
-  const last = lines.at(-1)
-
-  if (entry.id === undefined || last?.id !== entry.id) {
-    return [...lines, entry]
-  }
-
-  return [...lines.slice(0, -1), { ...last, text: last.text + entry.text }]
-}
+import type { Activity } from 'agent'
+import type { Line, Source } from './transcript.ts'
 
 /**
  * The chord flags a keystroke carries, the same five Ink reads off a key. Naming them
@@ -155,23 +34,27 @@ export type Viewport = {
   readonly rows: number
 }
 
-/**
- * Everything the screen knows: the lines of the Transcript, the Draft in the Composer,
- * whether the Composer is Locked for a Turn in flight, where the Transcript's window
- * sits among its laid-out rows, and the window it is drawn to.
- *
- * Following is not a flag beside the offset: it is the offset equalling the latest
- * laid-out row, which is zero while everything fits. Held is the offset above that end,
- * so the latest line is off the screen. A wheel notch is what moves it there; everything
- * that appends decides whether to keep the offset or carry it to the new end.
- */
-export type Screen = {
-  readonly draft: string
+// What every screen knows whatever the Composer is doing.
+type ScreenState = {
   readonly lines: ReadonlyArray<Line>
-  readonly locked: boolean
   readonly offset: number
   readonly viewport: Viewport
 }
+
+/**
+ * Everything the screen knows: the lines of the Transcript, where the Transcript's
+ * window sits among its laid-out rows, the window it is drawn to, and the Composer —
+ * either idle with a Draft, or Locked for a Turn in flight with no Draft to hold,
+ * because a submit clears the Draft as it Locks and nothing can type while Locked.
+ *
+ * Following is not a flag beside the offset: it is the offset equalling `pinned` — the
+ * first row of the tail, which is zero while everything fits. Held is the offset above
+ * that end, so the latest line is off the screen. A wheel notch is what moves it there;
+ * everything that appends decides whether to keep the offset or carry it to the new end.
+ */
+export type Screen =
+  | (ScreenState & { readonly draft?: never; readonly locked: true })
+  | (ScreenState & { readonly draft: string; readonly locked: false })
 
 /**
  * One thing that happens to the screen: a key, a wheel notch, an Activity the Turn
@@ -187,7 +70,7 @@ export type ScreenEvent =
   | { readonly notch: Notch; readonly type: 'wheel' }
 
 /** What one event does: the next screen, and the Request when a submit happened. */
-export type Step = {
+export type Transition = {
   readonly request?: string
   readonly screen: Screen
 }
@@ -201,12 +84,10 @@ export const start = (viewport: Viewport): Screen => ({
   viewport,
 })
 
-/**
- * The Composer's content row. The idle face is the chevron and the Draft, which is the
- * same shape the Transcript keeps for a submitted Request. The Locked face is a still
- * ellipsis with no chevron.
- */
-export const face = (screen: Screen): string => (screen.locked ? '…' : `> ${screen.draft}`)
+// The Composer's content row. The idle face is the chevron and the Draft, which is the
+// same shape the Transcript keeps for a submitted Request. The Locked face is a still
+// ellipsis with no chevron.
+const face = (screen: Screen): string => (screen.locked ? '…' : `> ${screen.draft}`)
 
 /**
  * One terminal row of the Transcript's window: the text to paint, and what paints it.
@@ -220,7 +101,7 @@ export type Row = {
   readonly text: string
 }
 
-// The rows the dock claims before the Transcript is given any: the seam, the frame's
+// The rows the dock claims before the Transcript is given any: the seam, the Composer's
 // top border, its one content row, and its bottom border. A window shorter than this
 // still claims all four, and the terminal clips what will not fit.
 const DOCK = 4
@@ -241,21 +122,29 @@ const markdown = (text: string, columns: number): ReadonlyArray<Row> =>
 // the text it holds; a call claims a blank row above it, which is the seam that keeps
 // one chain of tools from reading as a single slab.
 const rowsOf = (line: Line, columns: number): ReadonlyArray<Row> => {
-  if (line.source === 'agent') {
-    return markdown(line.text, columns)
-  }
+  switch (line.source) {
+    case 'agent':
+      return markdown(line.text, columns)
 
-  if (line.source === 'call') {
-    const rows: Array<Row> = [{ source: 'gap', text: '' }]
+    case 'call': {
+      const rows: Array<Row> = [{ source: 'gap', text: '' }]
 
-    for (const text of wrapped(line.text, columns)) {
-      rows.push({ source: 'call', text })
+      for (const text of wrapped(line.text, columns)) {
+        rows.push({ source: 'call', text })
+      }
+
+      return rows
     }
 
-    return rows
-  }
+    case 'loop':
+    case 'result':
+    case 'you':
+      return wrapped(line.text, columns).map((text) => ({ source: line.source, text }))
 
-  return wrapped(line.text, columns).map((text) => ({ source: line.source, text }))
+    // Stryker disable next-line ConditionalExpression: every Source has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
+    default:
+      return casesHandled(line.source)
+  }
 }
 
 // The whole Transcript laid out to rows, in order. Scroll counts these rows and not the
@@ -284,7 +173,7 @@ const NOTCH = 3
 // first line, down toward the latest, and a sideways roll is no scroll at all; either
 // way the offset stays among the laid-out rows, and a Transcript that fits has nowhere
 // to go.
-const wheeled = (screen: Screen, notch: Notch): Step => {
+const wheeled = (screen: Screen, notch: Notch): Transition => {
   if (notch === 'sideways') {
     return { screen }
   }
@@ -298,30 +187,52 @@ const wheeled = (screen: Screen, notch: Notch): Step => {
 // A line landing on the Transcript never yanks a reader who has left the latest line: a
 // Following window is carried to the new end, where a Held offset stays exactly where it
 // was, so the same lines remain in view as the new ones land below them.
+//
+// A fragment of a reply is laid out again as it grows, and markdown can lay out shorter
+// once a construct closes, so a Held offset is clamped to the end as well: Held is above
+// the end, never past it, and a clamp that lands on the end is Following by definition.
 const appended = (screen: Screen, line: Line): Screen => {
   const wasFollowing = following(screen)
   const lines = written(screen.lines, line)
+  const end = pinned(lines, screen.viewport)
 
   return {
     ...screen,
     lines,
-    offset: wasFollowing ? pinned(lines, screen.viewport) : screen.offset,
+    offset: wasFollowing ? end : Math.min(screen.offset, end),
   }
 }
 
+// A single control character is not typing: Ink hands Ctrl+J over as the newline itself,
+// since neither Return nor a named key covers it, and nothing printable is one. A paste
+// arrives as one longer input, which is out of the frame's hands.
+const control = (input: string): boolean => {
+  const [point, ...rest] = Array.from(input)
+  const code = point?.codePointAt(0) ?? 0
+
+  return rest.length === 0 && (code < 0x20 || code === 0x7f)
+}
+
 // A key does nothing while the Composer is Locked. Otherwise Return submits a non-blank
-// Draft, backspace and delete take the last character, a chord or a key with no
-// character of its own — an arrow, Page Up, Home — changes nothing, and anything else
-// is a printable character landing at the end of the Draft.
+// Draft, backspace and delete take the last character, a chord held with Ctrl or Meta
+// changes nothing, and anything else printable lands at the end of the Draft. A key with
+// no character of its own — an arrow, Page Up, Home — changes nothing either.
 const pressed = (
   screen: Screen,
   event: { readonly chord: Chord; readonly input: string },
-): Step => {
+): Transition => {
   if (screen.locked) {
     return { screen }
   }
 
   const { chord, input } = event
+
+  // A modifier chord is not typing, and Ink reports some of them under a named key:
+  // Alt+Return arrives as Return with meta, Alt+Backspace as backspace with meta. This
+  // guard reads before those names do, so neither reaches the Draft or the Transcript.
+  if (chord.ctrl || chord.meta) {
+    return { screen }
+  }
 
   if (chord.return) {
     if (screen.draft.trim() === '') {
@@ -333,11 +244,10 @@ const pressed = (
     return {
       request: screen.draft,
       screen: {
-        ...screen,
-        draft: '',
         lines,
         locked: true,
         offset: pinned(lines, screen.viewport),
+        viewport: screen.viewport,
       },
     }
   }
@@ -346,7 +256,7 @@ const pressed = (
     return { screen: { ...screen, draft: screen.draft.slice(0, -1) } }
   }
 
-  if (chord.ctrl || chord.meta) {
+  if (control(input)) {
     return { screen }
   }
 
@@ -366,7 +276,7 @@ const pressed = (
  * the new end, and a Held one is clamped, resuming Following when the clamp lands on
  * that end.
  */
-export const send = (screen: Screen, event: ScreenEvent): Step => {
+export const send = (screen: Screen, event: ScreenEvent): Transition => {
   switch (event.type) {
     case 'key':
       return pressed(screen, event)
@@ -381,11 +291,15 @@ export const send = (screen: Screen, event: ScreenEvent): Step => {
     }
 
     case 'ended':
-      return { screen: { ...screen, locked: false } }
+      return { screen: { ...screen, draft: '', locked: false } }
 
     case 'rejected':
       return {
-        screen: { ...appended(screen, { source: 'loop', text: event.message }), locked: false },
+        screen: {
+          ...appended(screen, { source: 'loop', text: event.message }),
+          draft: '',
+          locked: false,
+        },
       }
 
     case 'resize': {
@@ -415,13 +329,21 @@ export type Cell = {
   readonly row: number
 }
 
-/** What the shell paints: the Transcript's window, the Composer, and where the cursor goes. */
-export type View = {
+// What the shell paints whatever the Composer is doing.
+type ViewState = {
   readonly composer: string
-  readonly cursor?: Cell
-  readonly locked: boolean
   readonly rows: ReadonlyArray<Row>
 }
+
+/**
+ * What the shell paints: the Transcript's window, the Composer, and where the cursor
+ * goes. A Locked Composer names no cell — it is not a place typing could land — and an
+ * idle one always names the cell the next character will land on, so Locked and the
+ * cell's absence are the same fact.
+ */
+export type View =
+  | (ViewState & { readonly cursor?: never; readonly locked: true })
+  | (ViewState & { readonly cursor: Cell; readonly locked: false })
 
 // The visible slice of the Composer's content row: the tail that fits, so a Draft longer
 // than the row slides and the end — where the next character lands — is never the part
