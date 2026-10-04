@@ -1,11 +1,12 @@
 import { afterEach, expect, it } from '@effect/vitest'
-import { ConfigProvider, Effect, FileSystem, Layer, Option, Queue } from 'effect'
+import { Effect, FileSystem, Option, Queue } from 'effect'
 import type { Schema } from 'effect'
 import { Decision } from 'effect/ai'
 import type { Toolkit } from 'effect/ai'
 
 import { allows, judging } from './judging.ts'
 import {
+  homeFrom,
   judged,
   onDisk,
   outside,
@@ -92,14 +93,14 @@ const factsFor = <A, E>({ env = NO_HOME, handle, request, workspace: root }: Ask
 
     const judge = judging([allows], asked)
 
+    // The home is the port's own answer for the configuration, so the Gate is handed a
+    // home and never reads HOME itself.
+    const home = yield* homeFrom(env)
+
     yield* outcome(handle).pipe(
       Effect.provideService(Request, Option.fromUndefinedOr(request)),
       // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-      Effect.provide(
-        judged(root, judge).pipe(
-          Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
-        ),
-      ),
+      Effect.provide(judged(root, judge, home)),
     )
 
     const facts = yield* Queue.take(asked)
