@@ -91,7 +91,9 @@ export const handlers: Layer.Layer<
  * broken Skill stop the agent before it starts. The credentials port is provided here,
  * with the auth file as its adapter; the model adapter takes the port itself, so a test
  * can put a different one in its place. The Catalog is provided once, here, so both the
- * conversation and the gated handlers read the same copy the disk was read into.
+ * conversation and the gated handlers read the same copy the disk was read into. The
+ * home directory is provided once as well, outermost, so the write Gate and the Catalog
+ * are handed the same answer.
  */
 export const layer: Layer.Layer<
   Session,
@@ -102,8 +104,9 @@ export const layer: Layer.Layer<
   | SkillUnreadable,
   ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
 > = Session.layer.pipe(
-  Layer.provide(handlers.pipe(Layer.provide(Judge.layer), Layer.provide(Home.layer))),
+  Layer.provide(handlers.pipe(Layer.provide(Judge.layer))),
   Layer.provide(Codex.layer.pipe(Layer.provide(CodexCredentials.fromAuthFile))),
   Layer.provide(FetchHttpClient.layer),
   Layer.provide(Catalog.layer),
+  Layer.provide(Home.layer),
 )

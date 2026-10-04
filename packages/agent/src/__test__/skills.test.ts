@@ -1,11 +1,12 @@
 import { afterEach, expect, it } from '@effect/vitest'
 import { NodeServices } from '@effect/platform-node'
-import { Effect, Layer, Predicate, Ref, Schema } from 'effect'
+import { Effect, Layer, Option, Predicate, Ref, Schema } from 'effect'
 
 import type { PlatformError } from 'effect'
 import type { Chat } from 'effect/ai'
 
 import { Catalog, SkillUnreadable } from '#catalog.ts'
+import { Home } from '#home.ts'
 import { chat } from '#prompt.ts'
 import { Workspace } from '#workspace.ts'
 
@@ -36,10 +37,13 @@ const section = (skills: ReadonlyArray<readonly [string, string]>): string =>
     '</skills>',
   ].join('\n')
 
-// The real catalog, reading the workspace's `.agents/skills/` over the platform's own
-// file system: the session-startup seam, where a broken Skill stops the session.
+// The real catalog, reading the workspace's `.agents/skills/` and the home directory's
+// over the platform's own file system: the session-startup seam, where a broken Skill
+// stops the session. The home directory is the #26 port's answer, handed over as a layer
+// the way the write Gate is handed it.
 const reading = (
   workspace: string,
+  home: Option.Option<string> = Option.none(),
 ): Layer.Layer<
   NodeServices.NodeServices | Catalog | Workspace,
   SkillUnreadable | PlatformError.PlatformError
@@ -47,10 +51,14 @@ const reading = (
   Catalog.layer.pipe(
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(Layer.succeed(Workspace, workspace)),
+    Layer.provide(Layer.succeed(Home, home)),
   )
 
 // What the conversation opened with, over a workspace read for real.
-const instructions = (workspace: string): Effect.Effect<string, StartupRefusal> =>
+const instructions = (
+  workspace: string,
+  home: Option.Option<string> = Option.none(),
+): Effect.Effect<string, StartupRefusal> =>
   Effect.flatMap(chat, (conversation) => Ref.get(conversation.history)).pipe(
     Effect.flatMap((history) => {
       const [system] = history.content
@@ -64,37 +72,45 @@ const instructions = (workspace: string): Effect.Effect<string, StartupRefusal> 
       return Effect.succeed(system.content)
     }),
     // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-    Effect.provide(reading(workspace)),
+    Effect.provide(reading(workspace, home)),
   )
 
 type StartupRefusal = InstructionsUnreadable | SkillUnreadable | PlatformError.PlatformError
 
-const refusal = (workspace: string): Effect.Effect<StartupRefusal, Chat.Chat> =>
+const refusal = (
+  workspace: string,
+  home: Option.Option<string> = Option.none(),
+): Effect.Effect<StartupRefusal, Chat.Chat> =>
   // The Catalog is built before the conversation is, so a refusal it raises arrives as
   // the build's failure: the flip has to sit outside the provide, where that failure
   // lands in the effect's error channel.
   chat.pipe(
     // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-    Effect.provide(reading(workspace)),
+    Effect.provide(reading(workspace, home)),
     Effect.flip,
   )
 
 // The broken Skill the test arranged, narrowed: anything else reaching here is a defect
 // rather than a failure to assert.
-const broken = (workspace: string): Effect.Effect<SkillUnreadable, Chat.Chat> =>
-  refusal(workspace).pipe(
+const broken = (
+  workspace: string,
+  home: Option.Option<string> = Option.none(),
+): Effect.Effect<SkillUnreadable, Chat.Chat> =>
+  refusal(workspace, home).pipe(
     Effect.filterOrElse(Schema.is(SkillUnreadable), () =>
       Effect.die('the refusal was not a broken Skill'),
     ),
   )
 
+// A SKILL.md written into a directory's `.agents/skills/`: both the Workspace and the
+// home directory keep their Skills this way, so one fixture writes either.
 const skill = (
-  workspace: string,
+  root: string,
   name: string,
   frontmatter: string,
   body = 'Do the work.',
 ): Promise<void> =>
-  write(`${workspace}/.agents/skills/${name}/SKILL.md`, `---\n${frontmatter}\n---\n${body}`)
+  write(`${root}/.agents/skills/${name}/SKILL.md`, `---\n${frontmatter}\n---\n${body}`)
 
 it.live('a workspace with no Skills is handed exactly the prompt it is handed today', () =>
   Effect.gen(function* () {
@@ -164,6 +180,184 @@ it.live('a Skill its author kept for the person alone is left out of the Catalog
     expect(yield* instructions(workspace)).toBe(
       [standing(workspace), section([['yours', 'Shared with the agent']])].join('\n\n'),
     )
+  }),
+)
+
+// The home directory's `.agents/skills/`, read beside the Workspace's: the person's own
+// Skills are in every Workspace's Catalog, and where both hold a name the Workspace's is
+// the one the agent knows.
+it.live("the home directory's Skills join the Catalog", () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+    const home = yield* Effect.promise(() => onDisk(temporary))
+
+    yield* Effect.promise(() =>
+      skill(home, 'personal', 'name: personal\ndescription: Lives at home'),
+    )
+
+    expect(yield* instructions(workspace, Option.some(home))).toBe(
+      [standing(workspace), section([['personal', 'Lives at home']])].join('\n\n'),
+    )
+  }),
+)
+
+it.live('the Skills of both places are listed together, sorted by name', () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+    const home = yield* Effect.promise(() => onDisk(temporary))
+
+    yield* Effect.promise(() => skill(home, 'zebra', 'name: zebra\ndescription: Lives at home'))
+    yield* Effect.promise(() =>
+      skill(workspace, 'alpha', 'name: alpha\ndescription: Lives in the workspace'),
+    )
+
+    expect(yield* instructions(workspace, Option.some(home))).toBe(
+      [
+        standing(workspace),
+        section([
+          ['alpha', 'Lives in the workspace'],
+          ['zebra', 'Lives at home'],
+        ]),
+      ].join('\n\n'),
+    )
+  }),
+)
+
+it.live("when both places hold a Skill of the same name, the Workspace's is the one listed", () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+    const home = yield* Effect.promise(() => onDisk(temporary))
+
+    yield* Effect.promise(() => skill(home, 'shared', 'name: shared\ndescription: Written at home'))
+    yield* Effect.promise(() =>
+      skill(workspace, 'shared', 'name: shared\ndescription: Written for this project'),
+    )
+
+    expect(yield* instructions(workspace, Option.some(home))).toBe(
+      [standing(workspace), section([['shared', 'Written for this project']])].join('\n\n'),
+    )
+  }),
+)
+
+// Overriding is decided by the name being there at all, not by what is in the Catalog:
+// a Skill its author kept for the person alone still hides the home Skill of its name,
+// and neither is listed.
+it.live(
+  'a Workspace Skill the agent would not be shown still hides the home Skill of its name',
+  () =>
+    Effect.gen(function* () {
+      const workspace = yield* Effect.promise(() => onDisk(temporary))
+      const home = yield* Effect.promise(() => onDisk(temporary))
+
+      yield* Effect.promise(() =>
+        skill(home, 'shared', 'name: shared\ndescription: Written at home'),
+      )
+      yield* Effect.promise(() =>
+        skill(
+          workspace,
+          'shared',
+          'name: shared\ndescription: Kept for me\ndisable-model-invocation: true',
+        ),
+      )
+
+      expect(yield* instructions(workspace, Option.some(home))).toBe(standing(workspace))
+    }),
+)
+
+it.live('a disabled home Skill does not hide the Workspace Skill of its name', () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+    const home = yield* Effect.promise(() => onDisk(temporary))
+
+    yield* Effect.promise(() =>
+      skill(
+        home,
+        'shared',
+        'name: shared\ndescription: Kept for me\ndisable-model-invocation: true',
+      ),
+    )
+    yield* Effect.promise(() =>
+      skill(workspace, 'shared', 'name: shared\ndescription: Written for this project'),
+    )
+
+    expect(yield* instructions(workspace, Option.some(home))).toBe(
+      [standing(workspace), section([['shared', 'Written for this project']])].join('\n\n'),
+    )
+  }),
+)
+
+it.live('a home Skill its author kept for the person alone is left out of the Catalog', () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+    const home = yield* Effect.promise(() => onDisk(temporary))
+
+    yield* Effect.promise(() =>
+      skill(home, 'mine', 'name: mine\ndescription: Kept for me\ndisable-model-invocation: true'),
+    )
+
+    expect(yield* instructions(workspace, Option.some(home))).toBe(standing(workspace))
+  }),
+)
+
+it.live('a port that names no home directory contributes no home Skills', () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+    const elsewhere = yield* Effect.promise(() => onDisk(temporary))
+
+    // Skills written under a directory the port never named: with no home, no directory
+    // is read for one.
+    yield* Effect.promise(() =>
+      skill(elsewhere, 'personal', 'name: personal\ndescription: Lives elsewhere'),
+    )
+
+    expect(yield* instructions(workspace, Option.none())).toBe(standing(workspace))
+  }),
+)
+
+it.live('a home directory with no skills folder contributes no home Skills', () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+    const home = yield* Effect.promise(() => onDisk(temporary))
+
+    yield* Effect.promise(() =>
+      skill(workspace, 'alpha', 'name: alpha\ndescription: Does alpha work'),
+    )
+
+    expect(yield* instructions(workspace, Option.some(home))).toBe(
+      [standing(workspace), section([['alpha', 'Does alpha work']])].join('\n\n'),
+    )
+  }),
+)
+
+it.live('a broken home Skill stops the session, naming its file', () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+    const home = yield* Effect.promise(() => onDisk(temporary))
+
+    yield* Effect.promise(() => skill(home, 'broken', 'name: [unterminated'))
+
+    const stopped = yield* broken(workspace, Option.some(home))
+
+    expect(stopped.path).toBe(`${home}/.agents/skills/broken/SKILL.md`)
+    expect(stopped.reason).toContain('the frontmatter does not parse')
+  }),
+)
+
+// Every Skill is read and checked, the ones the Workspace's name hides included: a broken
+// file is never left lying around unnoticed just because another place holds its name.
+it.live('a broken home Skill stops the session even when the Workspace holds its name', () =>
+  Effect.gen(function* () {
+    const workspace = yield* Effect.promise(() => onDisk(temporary))
+    const home = yield* Effect.promise(() => onDisk(temporary))
+
+    yield* Effect.promise(() =>
+      skill(workspace, 'shared', 'name: shared\ndescription: Written for this project'),
+    )
+    yield* Effect.promise(() => skill(home, 'shared', 'name: [unterminated'))
+
+    const stopped = yield* broken(workspace, Option.some(home))
+
+    expect(stopped.path).toBe(`${home}/.agents/skills/shared/SKILL.md`)
   }),
 )
 
