@@ -25,10 +25,10 @@ export const mouse = (input: string): Mouse | undefined => {
     return undefined
   }
 
-  // The wheel is buttons 64 to 67. Up and down are the pair that scrolls; the sideways
-  // pair is the mouse reporting and asking for nothing. Any other button is a click, or
-  // the drag a held button makes.
-  switch (Number(report[1])) {
+  // The button field carries the modifiers the roll was made with — shift 4, meta 8, and
+  // ctrl 16 — beside the wheel's own code, so they are masked off: a modified roll is
+  // still a roll. Any other button is a click, or the drag a held button makes.
+  switch (Number(report[1]) & ~(4 | 8 | 16)) {
     case 64:
       return { notch: 'up', type: 'wheel' }
     case 65:

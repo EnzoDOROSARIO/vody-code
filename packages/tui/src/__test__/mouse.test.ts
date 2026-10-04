@@ -16,6 +16,25 @@ it('a sideways roll is a notch that scrolls nothing', () => {
   expect(mouse('[<67;10;10M')).toEqual({ notch: 'sideways', type: 'wheel' })
 })
 
+// The button field carries the modifiers held during the roll — shift 4, meta 8, ctrl 16
+// — beside the wheel's own code, so a modified roll is still a roll: 64 + 4 = 68 is the
+// wheel rolled up with shift down.
+it('a modified wheel report is still the notch it rolled', () => {
+  expect(mouse('[<68;10;10M')).toEqual({ notch: 'up', type: 'wheel' })
+  expect(mouse('[<72;10;10M')).toEqual({ notch: 'up', type: 'wheel' })
+  expect(mouse('[<80;10;10M')).toEqual({ notch: 'up', type: 'wheel' })
+  expect(mouse('[<69;10;10M')).toEqual({ notch: 'down', type: 'wheel' })
+  expect(mouse('[<70;10;10M')).toEqual({ notch: 'sideways', type: 'wheel' })
+})
+
+// Masking the modifiers does not turn another button into the wheel: a click is still a
+// click, however it was modified.
+it('a modified button that is not the wheel is still dropped', () => {
+  expect(mouse('[<4;10;10M')).toEqual({ type: 'dropped' })
+  expect(mouse('[<16;10;10M')).toEqual({ type: 'dropped' })
+  expect(mouse('[<36;10;10M')).toEqual({ type: 'dropped' })
+})
+
 // A click, a release, a drag: the mouse sent something and it is dropped, so a report
 // never lands in the Draft as the raw sequence it arrived as.
 it('anything else the mouse sends is dropped', () => {
