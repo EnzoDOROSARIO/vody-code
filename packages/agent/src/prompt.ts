@@ -3,7 +3,10 @@ import { Effect, FileSystem, Option, Path, Predicate, Schema } from 'effect'
 import type { PlatformError } from 'effect'
 import { Chat, Prompt } from 'effect/ai'
 
-import { Workspace } from '#workspace.ts'
+import { Catalog } from './catalog.ts'
+import { Workspace } from './workspace.ts'
+
+import type { Skill, SkillUnreadable } from './catalog.ts'
 
 // Best first. A workspace carrying both has renamed its instructions and kept the old
 // name for another agent, so the two say the same thing — and a `CLAUDE.md` symlinked
@@ -86,22 +89,52 @@ const standing = (workspace: string): string =>
 const quoted = ({ path, text }: Instructions): string =>
   `<project_instructions path="${path}">\n${text}\n</project_instructions>`
 
-const systemPrompt = (workspace: string, instructions: Option.Option<Instructions>): string =>
-  Option.match(instructions, {
-    onNone: () => standing(workspace),
-    onSome: (found) => [standing(workspace), quoted(found)].join('\n\n'),
+// The Catalog is told to the model under a tag of its own, after the standing
+// instructions and the workspace's own words: one line per Skill, the name it is loaded
+// by and what it is for, in a stable order so the same Skills give the same prompt.
+// Ticket #29 amends this wording when `load_skill` arrives.
+const skills = (catalog: ReadonlyMap<string, Skill>): string =>
+  [
+    '<skills>',
+    'A Skill is a folder of instructions for one kind of work, named and described by the SKILL.md at its top. These are the Skills available to you:',
+    [...catalog.entries()]
+      .toSorted(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([name, { description }]) => `- ${name}: ${description}`)
+      .join('\n'),
+    '</skills>',
+  ].join('\n')
+
+const systemPrompt = (
+  workspace: string,
+  instructions: Option.Option<Instructions>,
+  catalog: ReadonlyMap<string, Skill>,
+): string => {
+  const parts = Option.match(instructions, {
+    onNone: () => [standing(workspace)],
+    onSome: (found) => [standing(workspace), quoted(found)],
   })
+
+  // With no Skills the prompt is exactly what it is today: no section, and no separator
+  // for one that is not there.
+  if (catalog.size > 0) {
+    parts.push(skills(catalog))
+  }
+
+  return parts.join('\n\n')
+}
 
 export const chat: Effect.Effect<
   Chat.Chat,
-  InstructionsUnreadable,
-  FileSystem.FileSystem | Path.Path | Workspace
+  InstructionsUnreadable | SkillUnreadable | PlatformError.PlatformError,
+  Catalog | FileSystem.FileSystem | Path.Path | Workspace
 > = Effect.gen(function* () {
   const workspace = yield* Workspace
 
   const instructions = yield* projectInstructions
 
+  const catalog = yield* Catalog
+
   return yield* Chat.fromPrompt(
-    Prompt.empty.pipe(Prompt.setSystem(systemPrompt(workspace, instructions))),
+    Prompt.empty.pipe(Prompt.setSystem(systemPrompt(workspace, instructions, catalog))),
   )
 })

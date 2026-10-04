@@ -1,9 +1,12 @@
 import { afterEach, expect, it } from '@effect/vitest'
-import { Effect, Ref } from 'effect'
+import { Effect, Ref, Schema } from 'effect'
 import type { Chat } from 'effect/ai'
 
 import { chat, InstructionsUnreadable } from '#prompt.ts'
 import { onDisk, removeWorkspaces, services, temporary, write } from './testing.ts'
+
+import type { PlatformError } from 'effect'
+import type { SkillUnreadable } from '#catalog.ts'
 
 afterEach(removeWorkspaces)
 
@@ -19,7 +22,9 @@ const standing = (workspace: string): string =>
     `You are operating in ${workspace}`,
   ].join('\n')
 
-const instructions = (workspace: string): Effect.Effect<string, InstructionsUnreadable> =>
+type StartupRefusal = InstructionsUnreadable | SkillUnreadable | PlatformError.PlatformError
+
+const instructions = (workspace: string): Effect.Effect<string, StartupRefusal> =>
   Effect.flatMap(chat, (conversation) => Ref.get(conversation.history)).pipe(
     Effect.flatMap((history) => {
       const [system] = history.content
@@ -36,9 +41,16 @@ const instructions = (workspace: string): Effect.Effect<string, InstructionsUnre
     Effect.provide(services(workspace)),
   )
 
+// These tests arrange unreadable workspace instructions, so whatever else `chat` can
+// refuse with never arrives here; one that did would be a defect, not an assertion.
 const refusal = (workspace: string): Effect.Effect<InstructionsUnreadable, Chat.Chat> =>
-  // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
-  Effect.flip(chat).pipe(Effect.provide(services(workspace)))
+  Effect.flip(chat).pipe(
+    Effect.filterOrElse(Schema.is(InstructionsUnreadable), () =>
+      Effect.die('the refusal was not unreadable instructions'),
+    ),
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- a test is an entry point
+    Effect.provide(services(workspace)),
+  )
 
 it.live('the model is given the standing instructions, and told where it is working', () =>
   Effect.gen(function* () {

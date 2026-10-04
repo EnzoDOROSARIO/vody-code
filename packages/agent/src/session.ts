@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Stream } from 'effect'
 
-import type { FileSystem, Path } from 'effect'
+import type { FileSystem, Path, PlatformError } from 'effect'
 import type { LanguageModel } from 'effect/ai'
 
 import type { Activity } from './activity.ts'
@@ -8,6 +8,7 @@ import { chat } from './prompt.ts'
 import { answer } from './turn.ts'
 import { toolkit } from './tools/index.ts'
 
+import type { Catalog, SkillUnreadable } from './catalog.ts'
 import type { Handlers } from './tools/index.ts'
 import type { InstructionsUnreadable } from './prompt.ts'
 import type { Workspace } from './workspace.ts'
@@ -41,15 +42,16 @@ export class Session extends Context.Service<
   // Stryker restore StringLiteral
 
   /**
-   * The session the agent runs. The workspace's instructions are read while the layer is
-   * built, before any screen exists, so a file that cannot be read is reported to a
-   * terminal that still belongs to the shell. The handlers and the language model stay
-   * open, for the agent's layer to give them the real ones and the tests a scripted one.
+   * The session the agent runs. The workspace's instructions and its Catalog of Skills
+   * are read while the layer is built, before any screen exists, so a file that cannot be
+   * read is reported to a terminal that still belongs to the shell. The handlers and the
+   * language model stay open, for the agent's layer to give them the real ones and the
+   * tests a scripted one.
    */
   static readonly layer: Layer.Layer<
     Session,
-    InstructionsUnreadable,
-    Handlers | LanguageModel.LanguageModel | FileSystem.FileSystem | Path.Path | Workspace
+    InstructionsUnreadable | SkillUnreadable | PlatformError.PlatformError,
+    Catalog | Handlers | LanguageModel.LanguageModel | FileSystem.FileSystem | Path.Path | Workspace
   > = Layer.effect(
     Session,
     Effect.gen(function* () {
