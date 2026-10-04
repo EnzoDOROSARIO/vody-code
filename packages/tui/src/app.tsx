@@ -1,4 +1,4 @@
-import { Box, Text, useCursor, useInput, useStdin, useStdout, useWindowSize } from 'ink'
+import { Box, Text, useInput, useStdin, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { casesHandled } from './defects.ts'
@@ -74,8 +74,8 @@ const Transcript = ({
 
 /**
  * The dock's framed one-line box. The frame hands over the slice of the content row
- * that fits inside it and whether that face is Locked; the shell draws the border and
- * dims the waiting face, deciding nothing itself.
+ * that fits inside it and whether that face is Locked; the shell draws the border, dims
+ * the waiting face, and draws the cursor after an idle one, deciding nothing itself.
  */
 const Composer = ({
   locked,
@@ -87,26 +87,27 @@ const Composer = ({
   readonly width: number
 }): ReactElement => (
   <Box borderStyle="single" height={3} width={width}>
-    {locked ? <Text dimColor>{text}</Text> : <Text>{text}</Text>}
+    {locked ? (
+      <Text dimColor>{text}</Text>
+    ) : (
+      // The cursor is a cell painted in reverse, not the terminal's own: Ink places that
+      // one a row high once the frame fills the screen, and a drawn cell is one a string
+      // render can see.
+      <Text>
+        {text}
+        <Text inverse> </Text>
+      </Text>
+    )}
   </Box>
 )
 
 /**
  * The screen as the frame describes it: the Transcript's window, the blank seam that
- * never scrolls, and the framed Composer pinned under both. The terminal cursor is
- * placed at the cell the frame names, and hidden when the face is Locked, so Locked is
- * not a place that looks like typing could land.
+ * never scrolls, and the framed Composer pinned under both, with its cursor drawn only
+ * when the face is idle, so Locked is not a place that looks like typing could land.
  */
 export const ScreenView = ({ screen }: { readonly screen: Screen }): ReactElement => {
   const shown = view(screen)
-  const { setCursorPosition } = useCursor()
-
-  // The hook syncs through an insertion effect, so the cell has to be handed over during
-  // render; from an effect of our own it would land a paint late.
-  // Stryker disable next-line CallExpression: the call hands the cell to Ink, and a string render never reads the cursor Ink keeps, so dropping it is invisible
-  // Stryker disable next-line ConditionalExpression: the cell is handed to Ink, and a string render never reads the cursor it keeps, so the Locked choice is invisible
-  // Stryker disable next-line ObjectLiteral: the cell is handed to Ink, and a string render never reads the object it keeps, so the object's shape is invisible
-  setCursorPosition(shown.locked ? undefined : { x: shown.cursor.column, y: shown.cursor.row })
 
   return (
     <Box flexDirection="column" width={screen.viewport.columns}>

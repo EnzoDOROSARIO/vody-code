@@ -326,29 +326,16 @@ export const send = (screen: Screen, event: ScreenEvent): Transition => {
 }
 
 /**
- * The cell the terminal cursor sits on, in the frame's own coordinates: 0-based columns
- * from the left edge and rows from the top edge of what the shell paints.
+ * What the shell paints: the Transcript's window, the Composer's content row, and
+ * whether that face is the Locked one. An idle face is followed by the cursor, a cell the
+ * shell draws itself where the next character will land; a Locked face has none, since
+ * it is not a place typing could land.
  */
-export type Cell = {
-  readonly column: number
-  readonly row: number
-}
-
-// What the shell paints whatever the Composer is doing.
-type ViewState = {
+export type View = {
   readonly composer: string
+  readonly locked: boolean
   readonly rows: ReadonlyArray<Row>
 }
-
-/**
- * What the shell paints: the Transcript's window, the Composer, and where the cursor
- * goes. A Locked Composer names no cell — it is not a place typing could land — and an
- * idle one always names the cell the next character will land on, so Locked and the
- * cell's absence are the same fact.
- */
-export type View =
-  | (ViewState & { readonly cursor?: never; readonly locked: true })
-  | (ViewState & { readonly cursor: Cell; readonly locked: false })
 
 // The visible slice of the Composer's content row: the tail that fits, so a Draft longer
 // than the row slides and the end — where the next character lands — is never the part
@@ -373,8 +360,8 @@ const tail = (text: string, width: number): string => {
 
 /**
  * Lays the screen out as a person sees it: the rows of the Transcript's window, the
- * Composer's one content row, whether that face is the Locked one, and the cursor cell
- * when there is a place to type. The shell paints this and decides nothing.
+ * Composer's one content row, and whether that face is the Locked one. The shell paints
+ * this and decides nothing.
  */
 export const view = (screen: Screen): View => {
   const window = transcriptRows(screen.viewport)
@@ -384,22 +371,14 @@ export const view = (screen: Screen): View => {
     screen.offset + window,
   )
 
-  // Content cells are the columns the border leaves: the first and last belong to it.
+  // Content cells are the columns the border leaves: the first and last belong to it. An
+  // idle face gives up one more to the cursor drawn after it, so a Draft slides before
+  // the cursor would be pushed off the row.
   const width = Math.max(1, screen.viewport.columns - 2)
-  const composer = tail(face(screen), width)
-
-  if (screen.locked) {
-    return { composer, locked: true, rows }
-  }
-
-  // The cursor sits just after the visible text, or on the last content cell once the
-  // row has slid to its edge.
-  const text = stringWidth(composer)
 
   return {
-    composer,
-    cursor: { column: text < width ? text + 1 : width, row: window + 2 },
-    locked: false,
+    composer: tail(face(screen), screen.locked ? width : width - 1),
+    locked: screen.locked,
     rows,
   }
 }

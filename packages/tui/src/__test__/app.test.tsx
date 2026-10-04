@@ -1,7 +1,17 @@
 import { expect, it } from '@effect/vitest'
 
 import { ScreenView } from '#app.tsx'
-import { BOLD, CYAN, DIM, GREY_BACKGROUND, ITALIC, colourful, plain, screen } from './testing.ts'
+import {
+  BOLD,
+  CYAN,
+  DIM,
+  GREY_BACKGROUND,
+  INVERSE,
+  ITALIC,
+  colourful,
+  plain,
+  screen,
+} from './testing.ts'
 
 import type { Screen } from '#frame.ts'
 
@@ -23,12 +33,20 @@ it('the idle Composer is framed on the last rows, with the chevron and the Draft
   expect(lines.at(-1)).toBe(`└${'─'.repeat(38)}┘`)
 })
 
+// The cursor is drawn, not the terminal's own: a reversed cell just after the Draft,
+// where the next character lands.
+it('the idle Composer draws its cursor just after the Draft', () => {
+  const content = styled(screen({ draft: 'who am I' }, VIEWPORT)).at(-2) ?? ''
+
+  expect(content).toContain(`who am I${INVERSE} `)
+})
+
 // A Draft longer than the row slides, so the end — where the next character lands —
-// is always the part in view.
-it('a long Draft slides, so its end stays in the frame', () => {
+// is always the part in view, with the cursor's cell still inside the frame.
+it('a long Draft slides, so its end and the cursor stay in the frame', () => {
   const lines = bare(screen({ draft: 'abcdefghijklmnop' }, { columns: 12, rows: 6 }))
 
-  expect(lines.at(-2)).toBe('│ghijklmnop│')
+  expect(lines.at(-2)).toBe('│hijklmnop │')
 })
 
 // Locked the content row is a still ellipsis: dim, the way a tool's text is, but with
@@ -41,6 +59,7 @@ it('the Locked face is a dim ellipsis, with no chevron and no slab', () => {
   expect(content).toContain(DIM)
   expect(content).not.toContain(GREY_BACKGROUND)
   expect(content).not.toContain('>')
+  expect(content).not.toContain(INVERSE)
 })
 
 // A tool's output is a grey slab with dim text; the blank row above the call is a row

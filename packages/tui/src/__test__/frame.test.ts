@@ -526,42 +526,33 @@ it('a long Transcript shows its tail, and an Activity keeps the end in view', ()
   ])
 })
 
-it('the idle Composer is the chevron and the Draft, with the cursor after it', () => {
+it('the idle Composer is the chevron and the Draft', () => {
   const shown = view(screen({ draft: 'hi' }))
 
   expect(shown.composer).toBe('> hi')
   expect(shown.locked).toBe(false)
-  expect(shown.cursor).toEqual({ row: 22, column: 5 })
-})
-
-it('the empty Draft leaves the cursor just after the chevron', () => {
-  expect(view(screen()).cursor).toEqual({ row: 22, column: 3 })
 })
 
 // The Composer is one row: a Draft longer than the row slides so its end stays visible,
-// and the cursor lands on the last content cell rather than off the frame.
-it('a Draft longer than the row slides, with the cursor on the last cell', () => {
-  const shown = view(screen({ draft: 'abcdefghijklmnop' }, { columns: 10, rows: 6 }))
-
-  expect(shown.composer).toBe('ijklmnop')
-  expect(shown.cursor).toEqual({ row: 4, column: 8 })
+// and the last content cell is left to the cursor the shell draws after it.
+it('a Draft longer than the row slides, leaving the last cell to the cursor', () => {
+  expect(view(screen({ draft: 'abcdefghijklmnop' }, { columns: 10, rows: 6 })).composer).toBe(
+    'jklmnop',
+  )
 })
 
 // The slide is measured in the cells the terminal shows: an emoji is two of them, and
-// counting characters would hide the end two cells early.
+// counting characters would keep the chevron in a row the emoji already fill.
 it('the slide is measured in cells, not characters', () => {
-  const shown = view(screen({ draft: '🎉🎉' }, { columns: 6, rows: 6 }))
-
-  expect(shown.composer).toBe('🎉🎉')
-  expect(shown.cursor).toEqual({ row: 4, column: 4 })
+  expect(view(screen({ draft: '🎉🎉' }, { columns: 7, rows: 6 })).composer).toBe('🎉🎉')
 })
 
-it('the Locked face is a still ellipsis and names no cursor cell', () => {
-  const shown = view(screen({ locked: true }))
+// Locked there is no cursor to make room for, so the face has every content cell.
+it('the Locked face is a still ellipsis, with every content cell its own', () => {
+  const shown = view(screen({ locked: true }, { columns: 3, rows: 6 }))
 
   expect(shown.composer).toBe('…')
   expect(shown.locked).toBe(true)
-  expect(shown.cursor).toBeUndefined()
 })
 
 // A submitted Request is the newest line of the Transcript, so the window jumps to the
