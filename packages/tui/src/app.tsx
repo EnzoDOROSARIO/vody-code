@@ -1,78 +1,137 @@
-import { Box, Text, useInput, useStdin } from 'ink'
-import { useRef, useState } from 'react'
+import { Box, Text, useCursor, useInput, useStdin, useWindowSize } from 'ink'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { face, send, start } from './frame.ts'
-import { Markdown } from './markdown/index.tsx'
+import { send, start, transcriptRows, view } from './frame.ts'
 
 import type { Activity } from 'agent'
-import type { Line, Screen, ScreenEvent } from './frame.ts'
+import type { Row, Screen, ScreenEvent } from './frame.ts'
 import type { ReactElement } from 'react'
 
 export type Ask = (request: string, show: (activity: Activity) => void) => Promise<void>
 
-// A terminal has one font, so a tool's output is set apart the only two ways the
-// terminal offers: a grey slab behind it, and dim text to sit back from the reply.
-// The Box pads to the full width, so a call and the output under it read as one block.
-//
-// The blank row above a call is what keeps the next tool from joining that block: one
-// chain of tools would otherwise arrive as a single slab with no seam to read it by.
-// It is a margin rather than an empty line so that nothing paints it grey.
-//
-// Only the agent writes markdown. What you typed is shown back exactly as typed, and a
-// tool's output is already the text some other program chose.
-const Entry = ({ line }: { readonly line: Line }): ReactElement => {
-  if (line.source === 'agent') {
-    return <Markdown>{line.text}</Markdown>
-  }
-
-  if (line.source === 'you') {
-    return <Text>{line.text}</Text>
-  }
+// One row as the terminal paints it. The frame has already decided what each row is —
+// a Request, a tool, the loop's last word — and this only turns that into Ink's styling,
+// the same way the old Transcript did.
+const Painted = ({ row }: { readonly row: Row }): ReactElement => {
+  // A row with no words in it still takes its line: Ink drops a text node with nothing
+  // in it, which would slide the dock up over the row the frame counted. A bare space
+  // paints the row and is trimmed off the line; on a tool's slab it carries the grey
+  // across the row's full width, the way the blank line inside a multi-line output does.
+  const text = row.text === '' ? ' ' : row.text
 
   // The loop's last word on a Turn is set in bold, with none of a tool's grey, so it
   // reads as neither the model talking nor a tool's output.
-  if (line.source === 'loop') {
-    return <Text bold>{line.text}</Text>
+  if (row.source === 'loop') {
+    return <Text bold>{text}</Text>
   }
 
-  return (
-    <Box backgroundColor="gray" marginTop={line.source === 'call' ? 1 : 0}>
-      <Text dimColor>{line.text}</Text>
-    </Box>
-  )
+  // A tool's output is a grey slab with dim text to sit back from the reply. The gap
+  // above a call is none of these rows, so nothing paints it grey.
+  if (row.source === 'call' || row.source === 'result') {
+    return (
+      <Box backgroundColor="gray">
+        <Text dimColor>{text}</Text>
+      </Box>
+    )
+  }
+
+  return <Text>{text}</Text>
 }
 
-export const Transcript = ({ lines }: { readonly lines: ReadonlyArray<Line> }): ReactElement => (
-  <Box flexDirection="column">
-    {lines.map((entry, index) => (
+/**
+ * The Transcript's window: the rows the frame laid out, top-aligned inside the rows the
+ * dock left. The height is the frame's, not the rows', so a short Transcript keeps the
+ * dock on the last rows with the gap above it.
+ */
+const Transcript = ({
+  height,
+  rows,
+}: {
+  readonly height: number
+  readonly rows: ReadonlyArray<Row>
+}): ReactElement => (
+  <Box flexDirection="column" height={height}>
+    {rows.map((row, index) => (
       // oxlint-disable-next-line react/no-array-index-key -- append-only log
-      <Entry key={index} line={entry} />
+      <Painted key={index} row={row} />
     ))}
   </Box>
 )
 
 /**
- * The Ink shell's painter: it draws the Composer's content row exactly as the frame
- * describes it, and decides nothing itself.
+ * The dock's framed one-line box. The frame hands over the slice of the content row
+ * that fits inside it and whether that face is Locked; the shell draws the border and
+ * dims the waiting face, deciding nothing itself.
  */
-export const Composer = ({ text }: { readonly text: string }): ReactElement => <Text>{text}</Text>
+const Composer = ({
+  locked,
+  text,
+  width,
+}: {
+  readonly locked: boolean
+  readonly text: string
+  readonly width: number
+}): ReactElement => (
+  <Box borderStyle="single" height={3} width={width}>
+    {locked ? <Text dimColor>{text}</Text> : <Text>{text}</Text>}
+  </Box>
+)
+
+/**
+ * The screen as the frame describes it: the Transcript's window, the blank seam that
+ * never scrolls, and the framed Composer pinned under both. The terminal cursor is
+ * placed at the cell the frame names, and hidden when it names none, so Locked is not
+ * a place that looks like typing could land.
+ */
+export const ScreenView = ({ screen }: { readonly screen: Screen }): ReactElement => {
+  const { composer, cursor, locked, rows } = view(screen)
+  const { setCursorPosition } = useCursor()
+
+  // The hook syncs through an insertion effect, so the cell has to be handed over during
+  // render; from an effect of our own it would land a paint late.
+  // Stryker disable next-line ConditionalExpression,ObjectLiteral: the cell is handed to Ink, and a string render never reads the cursor it keeps
+  setCursorPosition(cursor === undefined ? undefined : { x: cursor.column, y: cursor.row })
+
+  return (
+    <Box flexDirection="column" width={screen.viewport.columns}>
+      <Transcript height={transcriptRows(screen.viewport)} rows={rows} />
+      <Text> </Text>
+      <Composer locked={locked} text={composer} width={screen.viewport.columns} />
+    </Box>
+  )
+}
 
 export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
   const { isRawModeSupported } = useStdin()
-  const [screen, setScreen] = useState<Screen>(start)
+  const window = useWindowSize()
+  const [screen, setScreen] = useState<Screen>(() => start(window))
   // The ask settles after the component has re-rendered, so the newest screen has to be
   // readable without one: an Activity that arrived while the last one was still being
   // painted would otherwise land on a stale screen.
-  const latest = useRef<Screen>(start)
+  const latest = useRef<Screen>(screen)
 
-  const step = (event: ScreenEvent): string | undefined => {
+  // Stryker disable ArrayDeclaration: the dependency lists below hold only a ref, a setter
+  // and the window, which React keeps stable; no string render can vary them.
+  // Stryker disable next-line BlockStatement: the callback runs only on a terminal event — a keystroke or a resize — and no test can deliver one
+  const step = useCallback((event: ScreenEvent): string | undefined => {
     const { request, screen: next } = send(latest.current, event)
 
     latest.current = next
+    // Stryker disable next-line CallExpression: a state update is invisible to a string render, whose output is the first render
     setScreen(next)
 
     return request
-  }
+  }, [])
+
+  // A resize is the one window change that is not a key: Ink reports it, and the frame
+  // lays the Transcript out to the new size and puts the window back at the end. No
+  // string render delivers a resize, so a render at the window's size comes out the same
+  // with the call or without it, which is why the rule lives on the frame.
+  // Stryker disable next-line BlockStatement,CallExpression: the effect attaches to the terminal, and no test can resize one
+  useEffect(() => {
+    step({ type: 'resize', viewport: window })
+  }, [step, window])
+  // Stryker restore ArrayDeclaration
 
   const show = (activity: Activity): void => {
     step({ activity, type: 'activity' })
@@ -103,10 +162,5 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
     { isActive: isRawModeSupported },
   )
 
-  return (
-    <Box flexDirection="column">
-      <Transcript lines={screen.lines} />
-      <Composer text={face(screen)} />
-    </Box>
-  )
+  return <ScreenView screen={screen} />
 }

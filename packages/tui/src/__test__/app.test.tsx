@@ -1,128 +1,153 @@
 import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 
-import { App, Composer, Transcript } from '#app.tsx'
-import { face } from '#frame.ts'
-import { BOLD, DIM, GREY_BACKGROUND, colourful, plain } from './testing.ts'
+import { App, ScreenView } from '#app.tsx'
+import { start } from '#frame.ts'
+import { BOLD, CYAN, DIM, GREY_BACKGROUND, colourful, plain } from './testing.ts'
 
-import type { Line } from '#frame.ts'
+import type { Screen } from '#frame.ts'
 
 const never: () => Promise<void> = () => Effect.runPromise(Effect.never)
 
-const transcript: ReadonlyArray<Line> = [
-  { source: 'you', text: '> say hi' },
-  { source: 'call', text: '$ echo hi' },
-  { source: 'agent', text: 'hi' },
-]
+const VIEWPORT = { columns: 40, rows: 10 }
 
-const ENDED =
-  'The Turn ended without an answer: the Gates refused 3 acts with none allowed in between, so the agent stopped trying. Ask again another way, or do this part yourself.'
+const screen = (parts: Partial<Screen> = {}): Screen => ({ ...start(VIEWPORT), ...parts })
 
-const BROKE =
-  'The Turn ended without an answer: the model broke down — OpenAI.streamText: Rate limit exceeded. Ask again, or do this part yourself.'
+const bare = (state: Screen): ReadonlyArray<string> =>
+  plain(<ScreenView screen={state} />, VIEWPORT.columns).split('\n')
+
+const painted = (state: Screen): ReadonlyArray<string> =>
+  colourful(<ScreenView screen={state} />, VIEWPORT.columns).split('\n')
+
+// The idle Composer is the frame's content row: the chevron and the Draft, inside the
+// border the shell draws, on the last rows of the screen.
+it('the idle Composer is framed on the last rows, with the chevron and the Draft', () => {
+  const lines = bare(screen({ draft: 'who am I' }))
+
+  expect(lines.at(-3)).toBe(`┌${'─'.repeat(38)}┐`)
+  expect(lines.at(-2)).toBe(`│> who am I${' '.repeat(28)}│`)
+  expect(lines.at(-1)).toBe(`└${'─'.repeat(38)}┘`)
+})
+
+// A Draft longer than the row slides, so the end — where the next character lands —
+// is always the part in view.
+it('a long Draft slides, so its end stays in the frame', () => {
+  const lines = bare(screen({ draft: 'abcdefghijklmnop', viewport: { columns: 12, rows: 6 } }))
+
+  expect(lines.at(-2)).toBe('│ghijklmnop│')
+})
+
+// Locked the content row is a still ellipsis: dim, the way a tool's text is, but with
+// no slab behind it and no chevron, so it reads as a face and not as a tool or a prompt.
+it('the Locked face is a dim ellipsis, with no chevron and no slab', () => {
+  const content = painted(screen({ locked: true })).at(-2) ?? ''
+
+  expect(content).toContain('…')
+  expect(content).toContain(DIM)
+  expect(content).not.toContain(GREY_BACKGROUND)
+  expect(content).not.toContain('>')
+})
+
+// A tool's output is a grey slab with dim text; the blank row above the call is a row
+// of the frame painted by nobody, so the slab does not sit against the seam.
+it('a tool is a grey slab, and the gap above it is bare', () => {
+  const lines = painted(
+    screen({
+      lines: [
+        { source: 'you', text: '> run it' },
+        { source: 'call', text: '$ echo hi' },
+        { source: 'result', text: 'exit 0' },
+      ],
+    }),
+  )
+
+  expect(lines[0]).toBe('> run it')
+  expect(lines[1]).toBe('')
+  expect(lines[2]).toContain(GREY_BACKGROUND)
+  expect(lines[2]).toContain(DIM)
+  expect(lines[3]).toContain(GREY_BACKGROUND)
+})
+
+// The seam between the Transcript's window and the frame is the dock's own blank row:
+// it stays put — and stays unpainted — however the Transcript ends.
+it('the seam above the frame is blank, never a slab', () => {
+  const lines = painted(screen({ lines: [{ source: 'result', text: 'exit 0' }] }))
+
+  expect(lines.at(-4)).toBe('')
+  expect(lines.at(-3)).toContain('┌')
+})
+
+// Only the agent writes markdown. What you typed is shown back exactly as typed, and a
+// tool's output is already the text some other program chose.
+it('the agent is read as markdown, and nobody else is', () => {
+  const state = screen({
+    lines: [
+      { source: 'agent', text: 'see `a.ts` and **b**' },
+      { source: 'you', text: '> use *.ts and **glob**' },
+      { source: 'result', text: '- not a list' },
+    ],
+  })
+
+  expect(bare(state).slice(0, 3)).toEqual([
+    'see a.ts and b',
+    '> use *.ts and **glob**',
+    '- not a list',
+  ])
+  expect(colourful(<ScreenView screen={state} />, VIEWPORT.columns)).toContain(CYAN)
+})
 
 // A Turn that answered ends with the prompt coming back, and so does one that reached an
 // Impasse, so the second has to say so in a way that reads as the loop and not the model.
+const ENDED =
+  'The Turn ended without an answer: the Gates refused 3 acts with none allowed in between, so the agent stopped trying. Ask again another way, or do this part yourself.'
+
+const WIDE = { columns: 200, rows: 6 }
+
 it('an Impasse stands out from the agent and its tools', () => {
-  const lines: ReadonlyArray<Line> = [
-    { source: 'agent', text: 'let me try' },
-    { source: 'loop', text: ENDED },
-  ]
+  const state: Screen = {
+    ...start(WIDE),
+    lines: [
+      { source: 'agent', text: 'let me try' },
+      { source: 'loop', text: ENDED },
+    ],
+  }
 
-  const [agent, ended] = colourful(<Transcript lines={lines} />, 400).split('\n')
+  const lines = colourful(<ScreenView screen={state} />, WIDE.columns).split('\n')
 
-  expect(agent).toBe('let me try')
-  expect(ended).toContain(BOLD)
-  expect(ended).not.toContain(GREY_BACKGROUND)
-  expect(plain(<Transcript lines={lines} />, 400)).toBe(`let me try\n${ENDED}`)
+  expect(lines[0]).toBe('let me try')
+  expect(lines[1]).toContain(BOLD)
+  expect(lines[1]).not.toContain(GREY_BACKGROUND)
+  expect(plain(<ScreenView screen={state} />, WIDE.columns).split('\n')[1]).toBe(ENDED)
 })
 
 // A Turn the model broke ends the way one the Gates ended does: the loop's last word,
 // said in bold, with the reason it carried named in the line.
+const BROKE =
+  'The Turn ended without an answer: the model broke down — OpenAI.streamText: Rate limit exceeded. Ask again, or do this part yourself.'
+
 it('a Breakdown stands out the way an Impasse does', () => {
-  const lines: ReadonlyArray<Line> = [
-    { source: 'agent', text: 'let me try' },
-    { source: 'loop', text: BROKE },
-  ]
+  const state: Screen = {
+    ...start(WIDE),
+    lines: [
+      { source: 'agent', text: 'let me try' },
+      { source: 'loop', text: BROKE },
+    ],
+  }
 
-  const [agent, ended] = colourful(<Transcript lines={lines} />, 400).split('\n')
+  const lines = colourful(<ScreenView screen={state} />, WIDE.columns).split('\n')
 
-  expect(agent).toBe('let me try')
-  expect(ended).toContain(BOLD)
-  expect(ended).not.toContain(GREY_BACKGROUND)
-  expect(plain(<Transcript lines={lines} />, 400)).toBe(`let me try\n${BROKE}`)
+  expect(lines[0]).toBe('let me try')
+  expect(lines[1]).toContain(BOLD)
+  expect(lines[1]).not.toContain(GREY_BACKGROUND)
+  expect(plain(<ScreenView screen={state} />, WIDE.columns).split('\n')[1]).toBe(BROKE)
 })
 
-it('the transcript renders each line under the one before it', () => {
-  expect(plain(<Transcript lines={transcript} />)).toBe('> say hi\n\n$ echo hi\nhi')
-})
+// The App is the mount: its window comes from the terminal, not from a prop, so this
+// sees whatever size the process reports and only checks what is true at any size — the
+// framed Composer with an empty Draft is the last thing on the screen.
+it('the app starts with the frame on the last rows and an empty Composer', () => {
+  const shown = plain(<App ask={never} />)
 
-it('a tool line carries a grey background and dim text, and the rest carry neither', () => {
-  const [you, , call, agent] = colourful(<Transcript lines={transcript} />).split('\n')
-
-  expect(call).toContain(GREY_BACKGROUND)
-  expect(call).toContain(DIM)
-  expect(you).toBe('> say hi')
-  expect(agent).toBe('hi')
-})
-
-// Only the agent writes markdown. What you typed is shown back exactly as typed, so a
-// glob or a star in a request survives, and a tool's output is text some other program
-// chose and is no one's to reformat.
-it('the agent is read as markdown, and nobody else is', () => {
-  expect(plain(<Transcript lines={[{ source: 'agent', text: 'see `a.ts` and **b**' }]} />)).toBe(
-    'see a.ts and b',
-  )
-  expect(plain(<Transcript lines={[{ source: 'you', text: '> use *.ts and **glob**' }]} />)).toBe(
-    '> use *.ts and **glob**',
-  )
-  expect(plain(<Transcript lines={[{ source: 'result', text: '- not a list' }]} />)).toBe(
-    '- not a list',
-  )
-})
-
-it('an agent line with nothing in it takes up no room', () => {
-  expect(
-    plain(
-      <Transcript
-        lines={[
-          { source: 'agent', text: '' },
-          { source: 'you', text: '> hi' },
-        ]}
-      />,
-    ),
-  ).toBe('> hi')
-})
-
-it('a chain of calls is broken up, while a call keeps the output under it', () => {
-  const chained: ReadonlyArray<Line> = [
-    { source: 'call', text: '$ echo hi' },
-    { source: 'result', text: 'exit 0' },
-    { source: 'result', text: 'hi' },
-    { source: 'call', text: 'read a.ts' },
-  ]
-
-  expect(plain(<Transcript lines={chained} />)).toBe('\n$ echo hi\nexit 0\nhi\n\nread a.ts')
-})
-
-it('the gap above a call is bare, not another row of grey', () => {
-  const [, gap] = colourful(<Transcript lines={transcript} />).split('\n')
-
-  expect(gap).toBe('')
-})
-
-it('the idle face is painted as the chevron and the Draft', () => {
-  expect(plain(<Composer text={face({ draft: 'who am I', lines: [], locked: false })} />)).toBe(
-    '> who am I',
-  )
-})
-
-it('the waiting face is painted as a still ellipsis, with no chevron', () => {
-  expect(plain(<Composer text={face({ draft: 'half typed', lines: [], locked: true })} />)).toBe(
-    '…',
-  )
-})
-
-it('the app starts with an empty transcript and an empty composer', () => {
-  expect(plain(<App ask={never} />)).toBe('>')
+  expect(shown).toContain('│> ')
+  expect(shown.split('\n').at(-1)).toMatch(/^└─+┘$/)
 })

@@ -1,6 +1,11 @@
+import chalk from 'chalk'
 import { Predicate } from 'effect'
+import stringWidth from 'string-width'
+import wrapAnsi from 'wrap-ansi'
 
 import { casesHandled } from './defects.ts'
+import { blocks } from './markdown/blocks.ts'
+import { BAR, INDENT } from './markdown/style.ts'
 
 import type { Activity, Breakdown, Impasse, ToolCall, ToolFailure, ToolResult } from 'agent'
 
@@ -41,6 +46,7 @@ const asked = (call: ToolCall): string => {
       return `read ${call.params.path}`
     case 'write_file':
       return `write ${call.params.path}`
+    // Stryker disable next-line ConditionalExpression: every ToolCall has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
     default:
       return casesHandled(call)
   }
@@ -58,8 +64,8 @@ const because = (failure: ToolFailure): string =>
 // What `bash` returns opens with its exit status, so that status is what the first
 // line of the quote shows. The `Console.log` this replaced previewed the raw output
 // and left the status out; showing it costs a few characters of the preview and is
-// worth them. Anything narrower would mean reading a shape the agent composed for
-// the model, which is the coupling this screen exists to avoid.
+// worth them. Anything narrower would mean reading a shape the agent composed for the
+// model, which is the coupling this screen exists to avoid.
 const gave = (result: ToolResult): string | undefined => {
   if (result.isFailure) {
     return `${result.name} failed: ${because(result.result)}`
@@ -140,24 +146,43 @@ export type Chord = {
 }
 
 /**
+ * The window the frame is drawn to, in the terminal's own cells. The rows are what the
+ * dock and the Transcript's window divide between them; the columns are what every line
+ * is laid out to.
+ */
+export type Viewport = {
+  readonly columns: number
+  readonly rows: number
+}
+
+/**
  * Everything the screen knows: the lines of the Transcript, the Draft in the Composer,
- * and whether the Composer is Locked for a Turn in flight.
+ * whether the Composer is Locked for a Turn in flight, where the Transcript's window
+ * sits among its laid-out rows, and the window it is drawn to.
+ *
+ * Following is not a flag beside the offset: it is the offset equalling the latest
+ * laid-out row, which is zero while everything fits. This slice always Follows, so
+ * every event that can change the layout puts the offset there; the wheel is what will
+ * be able to leave it above the end.
  */
 export type Screen = {
   readonly draft: string
   readonly lines: ReadonlyArray<Line>
   readonly locked: boolean
+  readonly offset: number
+  readonly viewport: Viewport
 }
 
 /**
  * One thing that happens to the screen: a key, an Activity the Turn reported, the Turn
- * ending, or the ask itself being rejected.
+ * ending, the ask itself being rejected, or the terminal being resized.
  */
 export type ScreenEvent =
   | { readonly chord: Chord; readonly input: string; readonly type: 'key' }
   | { readonly activity: Activity; readonly type: 'activity' }
   | { readonly type: 'ended' }
   | { readonly message: string; readonly type: 'rejected' }
+  | { readonly type: 'resize'; readonly viewport: Viewport }
 
 /** What one event does: the next screen, and the Request when a submit happened. */
 export type Step = {
@@ -166,7 +191,13 @@ export type Step = {
 }
 
 /** The screen before anyone has typed or the agent has said anything. */
-export const start: Screen = { draft: '', lines: [], locked: false }
+export const start = (viewport: Viewport): Screen => ({
+  draft: '',
+  lines: [],
+  locked: false,
+  offset: 0,
+  viewport,
+})
 
 /**
  * The Composer's content row. The idle face is the chevron and the Draft, which is the
@@ -174,6 +205,117 @@ export const start: Screen = { draft: '', lines: [], locked: false }
  * ellipsis with no chevron.
  */
 export const face = (screen: Screen): string => (screen.locked ? '…' : `> ${screen.draft}`)
+
+/**
+ * One terminal row of the Transcript's window: the text to paint, and what paints it.
+ *
+ * A `gap` is a row belonging to no line — the margin above a call, the blank between the
+ * agent's blocks — so the shell paints nothing there, which is what keeps a tool's grey
+ * slab from covering the seam it is read by.
+ */
+export type Row = {
+  readonly source: Source | 'gap'
+  readonly text: string
+}
+
+// The rows the dock claims before the Transcript is given any: the seam, the frame's
+// top border, its one content row, and its bottom border. A window shorter than this
+// still claims all four, and the terminal clips what will not fit.
+const DOCK = 4
+
+/** How many rows the Transcript's window has: whatever the dock leaves, possibly none. */
+export const transcriptRows = (viewport: Viewport): number => Math.max(0, viewport.rows - DOCK)
+
+// One source line to the rows the terminal would paint for it, wrapped the way Ink wraps
+// (`ink/build/wrap-text.js`), so the frame lays the Transcript out to exactly the rows a
+// mounted Ink would have drawn. Trailing whitespace is trimmed off each row because Ink
+// trims it off every painted line; whitespace inside a styled span survives either way,
+// since the escape after it stops the trim.
+const wrapped = (text: string, width: number): ReadonlyArray<string> =>
+  wrapAnsi(text, Math.max(1, width), { hard: true, trim: false })
+    .split('\n')
+    .map((row) => row.trimEnd())
+
+// The agent is the one line that is markdown, and the frame lays its blocks out the way
+// the Markdown component draws them: a blank row between blocks, a list's continuation
+// under its own words, a quotation barred down its left with the words wrapping clear of
+// the bar. The block strings already carry their own styling, so the shell has only to
+// paint them.
+const markdown = (text: string, columns: number): ReadonlyArray<Row> => {
+  const rows: Array<Row> = []
+
+  blocks(text).forEach((block, index) => {
+    if (index > 0) {
+      rows.push({ source: 'gap', text: '' })
+    }
+
+    if (block.kind === 'text') {
+      for (const row of wrapped(block.text, columns)) {
+        rows.push({ source: 'agent', text: row })
+      }
+
+      return
+    }
+
+    if (block.kind === 'list') {
+      for (const item of block.items) {
+        const indent = item.depth * INDENT
+        const hang = indent + stringWidth(item.marker) + 1
+
+        wrapped(item.text, columns - hang).forEach((row, at) => {
+          const lead = at === 0 ? `${' '.repeat(indent)}${item.marker} ` : ' '.repeat(hang)
+
+          rows.push({ source: 'agent', text: lead + row })
+        })
+      }
+
+      return
+    }
+
+    for (const line of block.text.split('\n')) {
+      wrapped(chalk.italic(line), columns - 2).forEach((row, at) => {
+        const lead = at === 0 ? chalk.dim(`${BAR} `) : '  '
+
+        rows.push({ source: 'agent', text: lead + row })
+      })
+    }
+  })
+
+  return rows
+}
+
+// One Transcript line to the rows of the window it takes. Only the agent is more than
+// the text it holds; a call claims a blank row above it, which is the seam that keeps
+// one chain of tools from reading as a single slab.
+const rowsOf = (line: Line, columns: number): ReadonlyArray<Row> => {
+  if (line.source === 'agent') {
+    return markdown(line.text, columns)
+  }
+
+  if (line.source === 'call') {
+    const rows: Array<Row> = [{ source: 'gap', text: '' }]
+
+    for (const text of wrapped(line.text, columns)) {
+      rows.push({ source: 'call', text })
+    }
+
+    return rows
+  }
+
+  return wrapped(line.text, columns).map((text) => ({ source: line.source, text }))
+}
+
+// The whole Transcript laid out to rows, in order. Scroll counts these rows and not the
+// source lines, because a wrapped line takes more than one and the person scrolls what
+// they see.
+const laidOut = (lines: ReadonlyArray<Line>, columns: number): ReadonlyArray<Row> =>
+  lines.flatMap((line) => rowsOf(line, columns))
+
+// Where the window sits once it has caught the latest row: the first row of the tail
+// when the Transcript is taller than the window, and the top when everything fits. This
+// slice always Follows, so every event that can change the layout puts the offset here.
+const pinned = (lines: ReadonlyArray<Line>, viewport: Viewport): number =>
+  Math.max(0, laidOut(lines, viewport.columns).length - transcriptRows(viewport))
 
 // A key does nothing while the Composer is Locked. Otherwise Return submits a non-blank
 // Draft, backspace and delete take the last character, a chord or a key with no
@@ -194,12 +336,16 @@ const pressed = (
       return { screen }
     }
 
+    const lines = written(screen.lines, { source: 'you', text: `> ${screen.draft}` })
+
     return {
       request: screen.draft,
       screen: {
+        ...screen,
         draft: '',
-        lines: written(screen.lines, { source: 'you', text: `> ${screen.draft}` }),
+        lines,
         locked: true,
+        offset: pinned(lines, screen.viewport),
       },
     }
   }
@@ -220,7 +366,10 @@ const pressed = (
  *
  * An Activity the screen shows appends to the Transcript; one it declines to show adds
  * nothing. Neither moves a Locked Composer. The Turn ending — a rejection of the ask
- * included — unlocks it, and the rejection is said in the loop's voice first.
+ * included — unlocks it, and the rejection is said in the loop's voice first. A resize
+ * replaces the window and lays the Transcript out to it again. Everything that can
+ * change the layout leaves the offset at the latest row: in this slice the screen is
+ * always Following.
  */
 export const send = (screen: Screen, event: ScreenEvent): Step => {
   switch (event.type) {
@@ -230,24 +379,107 @@ export const send = (screen: Screen, event: ScreenEvent): Step => {
     case 'activity': {
       const entry = transcribe(event.activity)
 
-      return entry === undefined
-        ? { screen }
-        : { screen: { ...screen, lines: written(screen.lines, entry) } }
+      if (entry === undefined) {
+        return { screen }
+      }
+
+      const lines = written(screen.lines, entry)
+
+      return { screen: { ...screen, lines, offset: pinned(lines, screen.viewport) } }
     }
 
     case 'ended':
       return { screen: { ...screen, locked: false } }
 
-    case 'rejected':
+    case 'rejected': {
+      const lines = written(screen.lines, { source: 'loop', text: event.message })
+
+      return {
+        screen: { ...screen, lines, locked: false, offset: pinned(lines, screen.viewport) },
+      }
+    }
+
+    case 'resize':
       return {
         screen: {
           ...screen,
-          lines: written(screen.lines, { source: 'loop', text: event.message }),
-          locked: false,
+          viewport: event.viewport,
+          offset: pinned(screen.lines, event.viewport),
         },
       }
     // Stryker disable next-line ConditionalExpression: every event has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
     default:
       return casesHandled(event)
+  }
+}
+
+/**
+ * The cell the terminal cursor sits on, in the frame's own coordinates: 0-based columns
+ * from the left edge and rows from the top edge of what the shell paints.
+ */
+export type Cell = {
+  readonly column: number
+  readonly row: number
+}
+
+/** What the shell paints: the Transcript's window, the Composer, and where the cursor goes. */
+export type View = {
+  readonly composer: string
+  readonly cursor?: Cell
+  readonly locked: boolean
+  readonly rows: ReadonlyArray<Row>
+}
+
+// The visible slice of the Composer's content row: the tail that fits, so a Draft longer
+// than the row slides and the end — where the next character lands — is never the part
+// that is hidden. Cells, not characters: a wide glyph takes two columns off the row.
+const tail = (text: string, width: number): string => {
+  let kept = ''
+  let taken = 0
+
+  for (const point of Array.from(text).toReversed()) {
+    const size = stringWidth(point)
+
+    if (taken + size > width) {
+      return kept
+    }
+
+    kept = point + kept
+    taken += size
+  }
+
+  return kept
+}
+
+/**
+ * Lays the screen out as a person sees it: the rows of the Transcript's window, the
+ * Composer's one content row, whether that face is the Locked one, and the cursor cell
+ * when there is a place to type. The shell paints this and decides nothing.
+ */
+export const view = (screen: Screen): View => {
+  const window = transcriptRows(screen.viewport)
+
+  const rows = laidOut(screen.lines, screen.viewport.columns).slice(
+    screen.offset,
+    screen.offset + window,
+  )
+
+  // Content cells are the columns the border leaves: the first and last belong to it.
+  const width = Math.max(1, screen.viewport.columns - 2)
+  const composer = tail(face(screen), width)
+
+  if (screen.locked) {
+    return { composer, locked: true, rows }
+  }
+
+  // The cursor sits just after the visible text, or on the last content cell once the
+  // row has slid to its edge.
+  const text = stringWidth(composer)
+
+  return {
+    composer,
+    cursor: { column: text < width ? text + 1 : width, row: window + 2 },
+    locked: false,
+    rows,
   }
 }
