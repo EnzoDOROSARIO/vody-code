@@ -6,12 +6,12 @@ import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/
 import type { CodexAuthenticationRequired } from './credentials.ts'
 import { CodexCredentials } from './credentials.ts'
 
-const MODEL = 'gpt-5.6-sol'
+const MODEL = 'gpt-6-luna'
 
 // How hard the model thinks before it answers. Left unset, the effort is whatever the
 // model defaults to, which OpenAI varies from one release to the next; naming it here
 // means a new default cannot quietly change how the agent works.
-const REASONING_EFFORT = 'high'
+const REASONING_EFFORT = 'max'
 
 const API_URL = 'https://chatgpt.com/backend-api/codex'
 

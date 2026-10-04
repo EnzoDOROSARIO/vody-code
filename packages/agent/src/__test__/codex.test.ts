@@ -35,10 +35,10 @@ const responses = (body: typeof Body.Type): HttpClientRequest.HttpClientRequest 
   )
 
 it('asks for encrypted reasoning', () => {
-  const request = withEncryptedReasoning(responses({ model: 'gpt-5.6-sol' }))
+  const request = withEncryptedReasoning(responses({ model: 'gpt-5.6-luna' }))
 
   expect(sent(request).include).toEqual(['reasoning.encrypted_content'])
-  expect(sent(request).model).toBe('gpt-5.6-sol')
+  expect(sent(request).model).toBe('gpt-5.6-luna')
 })
 
 it('adds to an existing include list rather than replacing it', () => {
@@ -89,7 +89,7 @@ it.live('every request carries the stored credentials and names this client', ()
       recorded.client,
     )
 
-    yield* client.execute(responses({ model: 'gpt-5.6-sol' }))
+    yield* client.execute(responses({ model: 'gpt-5.6-luna' }))
 
     expect(recorded.sent()?.headers).toMatchObject({
       authorization: 'Bearer access-token',
@@ -107,7 +107,7 @@ it.live('a request goes out asking for encrypted reasoning', () =>
       recorded.client,
     )
 
-    yield* client.execute(responses({ model: 'gpt-5.6-sol' }))
+    yield* client.execute(responses({ model: 'gpt-5.6-luna' }))
 
     const request = recorded.sent()
 
@@ -133,8 +133,8 @@ it.live('the credentials are read again for every request, so the next one sends
       port(Effect.sync(() => reads.shift() ?? credential('exhausted', 'account-id'))),
     )(recorded.client)
 
-    yield* client.execute(responses({ model: 'gpt-5.6-sol' }))
-    yield* client.execute(responses({ model: 'gpt-5.6-sol' }))
+    yield* client.execute(responses({ model: 'gpt-5.6-luna' }))
+    yield* client.execute(responses({ model: 'gpt-5.6-luna' }))
 
     expect(recorded.sent()?.headers).toMatchObject({ authorization: 'Bearer second-token' })
     expect(recorded.seen()[0]?.headers).toMatchObject({ authorization: 'Bearer first-token' })
@@ -149,7 +149,7 @@ it.live('a request is never sent when there are no credentials to sign it with',
       port(Effect.fail(new CodexAuthenticationRequired({ reason: 'the test refuses to sign in' }))),
     )(recorded.client)
 
-    const exit = yield* Effect.exit(client.execute(responses({ model: 'gpt-5.6-sol' })))
+    const exit = yield* Effect.exit(client.execute(responses({ model: 'gpt-5.6-luna' })))
 
     expect(rendered(exit)).toContain('the test refuses to sign in')
     expect(recorded.sent()).toBeUndefined()
@@ -162,13 +162,13 @@ it('a body that arrived as bytes is read and added to all the same', () => {
   const request = withEncryptedReasoning(
     HttpClientRequest.bodyUint8Array(
       HttpClientRequest.post('https://chatgpt.com/backend-api/codex/responses'),
-      new TextEncoder().encode(JSON.stringify({ model: 'gpt-5.6-sol' })),
+      new TextEncoder().encode(JSON.stringify({ model: 'gpt-5.6-luna' })),
       'application/json',
     ),
   )
 
   expect(sent(request).include).toEqual(['reasoning.encrypted_content'])
-  expect(sent(request).model).toBe('gpt-5.6-sol')
+  expect(sent(request).model).toBe('gpt-5.6-luna')
 })
 
 it('a request with no body of its own is left exactly as it came', () => {
@@ -250,9 +250,9 @@ it.live('a request of the model goes out as the adapter was built to send it', (
 
     const body = request === undefined ? {} : sent(request)
 
-    expect(body.model).toBe('gpt-5.6-sol')
+    expect(body.model).toBe('gpt-5.6-luna')
     expect(body.store).toBe(false)
-    expect(body.reasoning?.effort).toBe('high')
+    expect(body.reasoning?.effort).toBe('max')
     expect(body.include).toEqual(['reasoning.encrypted_content'])
   }),
 )
