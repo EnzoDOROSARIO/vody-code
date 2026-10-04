@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { casesHandled } from './defects.ts'
 import { send, start, transcriptRows, view } from './frame.ts'
-import { mouse } from './mouse.ts'
+import { eventOf } from './input.ts'
 
 import type { Activity } from 'agent'
 import type { Row, Screen, ScreenEvent } from './frame.ts'
@@ -180,33 +180,31 @@ export const App = ({ ask }: { readonly ask: Ask }): ReactElement => {
     dispatch({ activity, type: 'activity' })
   }
 
+  // A Turn the model broke is an Activity like any other, so a rejection here is a
+  // defect in the session, not an ending the transcript has a word for. It is said in
+  // the loop's voice, and the Composer comes back either way, so nobody is left waiting
+  // on a Turn that already ended. No Request means no Turn: the event was a key or a
+  // wheel notch, and nothing was submitted.
+  const turned = (request: string | undefined): void => {
+    if (request === undefined) {
+      return
+    }
+
+    ask(request, show)
+      .catch((error: Error) => dispatch({ message: error.message, type: 'rejected' }))
+      .finally(() => dispatch({ type: 'ended' }))
+  }
+
   // Stryker disable next-line CallExpression: the hook attaches the handler to a terminal,
   // and a string render has no stdin to deliver a keystroke through — with the call or
   // without it the rendered screen is the same, which is why the rules live on the frame.
   useInput(
     (input, key) => {
-      const report = mouse(input)
+      const event = eventOf(input, key)
 
-      // A click or a drag is the mouse and nothing else: it is dropped here rather than
-      // left to land in the Draft as the raw sequence it arrived as. A sideways roll is
-      // a notch the frame declines to scroll.
-      if (report?.type === 'dropped') {
-        return
+      if (event !== undefined) {
+        turned(dispatch(event))
       }
-
-      const request = dispatch(report ?? { chord: key, input, type: 'key' })
-
-      if (request === undefined) {
-        return
-      }
-
-      // A Turn the model broke is an Activity like any other, so a rejection here is a
-      // defect in the session, not an ending the transcript has a word for. It is said in
-      // the loop's voice, and the Composer comes back either way, so nobody is left waiting
-      // on a Turn that already ended.
-      ask(request, show)
-        .catch((error: Error) => dispatch({ message: error.message, type: 'rejected' }))
-        .finally(() => dispatch({ type: 'ended' }))
     },
     // Stryker disable next-line ObjectLiteral: the option gates the handler on a terminal
     // being attached, which a string render never has, so with it or without it the

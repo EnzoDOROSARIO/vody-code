@@ -203,6 +203,19 @@ const appended = (screen: Screen, line: Line): Screen => {
   }
 }
 
+// A resize replaces the window and lays the Transcript out to it again: a Following
+// screen is carried to the new end, and a Held one is clamped, resuming Following when
+// the clamp lands on that end.
+const resized = (screen: Screen, viewport: Viewport): Screen => {
+  const end = pinned(screen.lines, viewport)
+
+  return {
+    ...screen,
+    offset: following(screen) ? end : Math.min(screen.offset, end),
+    viewport,
+  }
+}
+
 // A single control character is not typing: Ink hands Ctrl+J over as the newline itself,
 // since neither Return nor a named key covers it, and nothing printable is one. A paste
 // arrives as one longer input, which is out of the frame's hands.
@@ -302,17 +315,8 @@ export const send = (screen: Screen, event: ScreenEvent): Transition => {
         },
       }
 
-    case 'resize': {
-      const end = pinned(screen.lines, event.viewport)
-
-      return {
-        screen: {
-          ...screen,
-          offset: following(screen) ? end : Math.min(screen.offset, end),
-          viewport: event.viewport,
-        },
-      }
-    }
+    case 'resize':
+      return { screen: resized(screen, event.viewport) }
 
     // Stryker disable next-line ConditionalExpression: every event has an arm above, so this one is reached only by a value the type rules out, and no test can build one without an assertion
     default:
