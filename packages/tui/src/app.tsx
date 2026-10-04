@@ -54,7 +54,7 @@ const marks = {
 // A Plan write is the Plan itself, so it is announced as its Steps, one per line, each
 // behind the mark its status earns. A write with no Steps is the Plan being cleared,
 // which would otherwise be invisible.
-const plan = (steps: ReadonlyArray<Step>): string =>
+const drawn = (steps: ReadonlyArray<Step>): string =>
   steps.length === 0
     ? 'The Plan was cleared'
     : steps.map((step) => `${marks[step.status]} ${step.text}`).join('\n')
@@ -75,7 +75,7 @@ const asked = (call: ToolCall): string => {
     case 'write_file':
       return `write ${call.params.path}`
     case 'write_plan':
-      return plan(call.params.steps)
+      return drawn(call.params.steps)
     default:
       return casesHandled(call)
   }
@@ -127,7 +127,7 @@ const broke = (breakdown: Breakdown): string =>
 // put back in front of the agent: the same Steps, behind the same marks, that a Plan
 // write shows.
 const reminded = (reminder: Reminder): string =>
-  `The agent was reminded of its Plan:\n${plan(reminder.steps)}`
+  `The agent was reminded of its Plan:\n${drawn(reminder.steps)}`
 
 export const transcribe = (activity: Activity): Line | undefined => {
   switch (activity.type) {
