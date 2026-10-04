@@ -103,3 +103,13 @@ It runs locally, not in CI: by hand, and in the review workflow's `Mutation` pha
 Entry points are mutated like everything else: `tui/src/cli.ts` and most of `tui/src/index.tsx` mount the app and no unit test reaches them, so they are a standing drag on the total rather than a scoring exemption.
 
 A mutant no test can tell apart is marked where it lives, with `// Stryker disable <mutator>: <reason>` — one mutator rather than `all`, so the reason and what it excuses stay the same size, and a reason that says why the code cannot observe the change. Anything else is a test that is missing.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as GitHub issues in `EnzoDOROSARIO/vody-code`, driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
