@@ -3,6 +3,7 @@ import { Effect, Layer } from 'effect'
 import type { FileSystem, Path } from 'effect'
 
 import * as CommandGate from './command-gate.ts'
+import type { Home } from './home.ts'
 import { Perimeter } from './perimeter.ts'
 import { Hooks } from './tools/hooks.ts'
 import * as WriteGate from './write-gate.ts'
@@ -22,7 +23,7 @@ import type { Workspace } from './workspace.ts'
 export const layer: Layer.Layer<
   never,
   never,
-  FileSystem.FileSystem | Judge | Path.Path | Workspace
+  FileSystem.FileSystem | Home | Judge | Path.Path | Workspace
 > = Layer.effect(
   Hooks,
   Effect.gen(function* () {
@@ -37,6 +38,7 @@ export const layer: Layer.Layer<
       bash,
       edit_file: writes.edit_file,
       glob: undefined,
+      load_skill: undefined,
       read_file: undefined,
       write_file: writes.write_file,
       write_plan: undefined,

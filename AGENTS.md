@@ -112,4 +112,4 @@ Issues and specs live as GitHub issues in `EnzoDOROSARIO/vody-code`, driven by t
 
 ### Domain docs
 
-Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

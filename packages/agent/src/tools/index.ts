@@ -9,12 +9,16 @@ import * as EditFile from './edit-file.ts'
 import { Files } from './files.ts'
 import * as Glob from './glob.ts'
 import { before, Hooks } from './hooks.ts'
+import * as LoadSkill from './load-skill.ts'
 import * as ReadFile from './read-file.ts'
 import { toolkit } from './toolkit.ts'
 import * as WriteFile from './write-file.ts'
 import * as WritePlan from './write-plan.ts'
 
 import type { Tools } from './toolkit.ts'
+
+import type { Catalog } from '#catalog.ts'
+
 import type { Workspace } from '#workspace.ts'
 
 // Each tool owns the errors it raises. They are re-exported here so a caller still
@@ -26,6 +30,8 @@ export { TextNotFound, TextNotUnique } from './edit-file.ts'
 export { FileSystemRefused } from './errors.ts'
 
 export { Hooks } from './hooks.ts'
+
+export { SkillNotFound } from './load-skill.ts'
 
 export { FileIsBinary } from './read-file.ts'
 
@@ -49,10 +55,15 @@ export type Handlers = Tool.HandlersFor<Tools>
 // its way in: a tool is only ever handed over wrapped in whatever hook is at the
 // seam for it. `Files` is provided here because the record of what has been read
 // only means anything if the three tools that read and write files share one.
+//
+// The Catalog is read here, while this layer is built, not per call: `LoadSkill.handlers`
+// reads the port and closes over the copy. That read is what puts `Catalog` in this
+// layer's requirements — a composition that forgets it is a compile error — and what
+// makes `load_skill` serve the same startup copy the conversation got.
 export const toolkitLayer: Layer.Layer<
   Handlers,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
+  Catalog | ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Workspace
 > = toolkit
   .toLayer(
     Effect.gen(function* () {
@@ -61,6 +72,7 @@ export const toolkitLayer: Layer.Layer<
       const bash = yield* Bash.handlers
       const editFile = yield* EditFile.handlers
       const glob = yield* Glob.handlers
+      const loadSkill = yield* LoadSkill.handlers
       const readFile = yield* ReadFile.handlers
       const writeFile = yield* WriteFile.handlers
 
@@ -73,6 +85,9 @@ export const toolkitLayer: Layer.Layer<
         // The Plan acts on nothing on the machine, so no Gate stands in front of it; it
         // still passes through the seam, where nothing is at it.
         write_plan: before(hooks, 'write_plan', WritePlan.handler),
+        // A load serves the Catalog's startup copy and touches nothing, so no Gate
+        // stands in front of it either; it passes through the same empty seam.
+        load_skill: before(hooks, 'load_skill', loadSkill.load_skill),
       })
     }),
   )

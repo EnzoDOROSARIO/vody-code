@@ -35,6 +35,7 @@ export const ToolCall = Schema.Union([
   callTo('bash', toolkit.tools.bash.parametersSchema),
   callTo('edit_file', toolkit.tools.edit_file.parametersSchema),
   callTo('glob', toolkit.tools.glob.parametersSchema),
+  callTo('load_skill', toolkit.tools.load_skill.parametersSchema),
   callTo('read_file', toolkit.tools.read_file.parametersSchema),
   callTo('write_file', toolkit.tools.write_file.parametersSchema),
   callTo('write_plan', toolkit.tools.write_plan.parametersSchema),

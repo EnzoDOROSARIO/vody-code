@@ -1,7 +1,8 @@
-import { Config, Effect, FileSystem, Option, Path } from 'effect'
+import { Effect, FileSystem, Option, Path } from 'effect'
 
 import type { PlatformError } from 'effect'
 
+import { Home } from './home.ts'
 import { Judge } from './judge.ts'
 import { Perimeter, under } from './perimeter.ts'
 import { Request } from './request.ts'
@@ -26,7 +27,7 @@ import type { Facts } from './write-questions.ts'
 export const hooks: Effect.Effect<
   Hooks,
   never,
-  FileSystem.FileSystem | Judge | Path.Path | Perimeter | Workspace
+  FileSystem.FileSystem | Home | Judge | Path.Path | Perimeter | Workspace
 > = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
@@ -36,19 +37,9 @@ export const hooks: Effect.Effect<
 
   const workspace = yield* Workspace
 
-  // The home directory by its real path, since that is the form a landing path is in.
-  // One that cannot be resolved does not exist yet, and a write can still create it, so
-  // its name is kept, normalised the way a real path is, so that a trailing slash or a
-  // `..` in HOME does not hide the writes under it. With no HOME at all, nothing is under
-  // a home.
-  const home = yield* Effect.option(Config.String('HOME')).pipe(
-    Effect.map(
-      Option.map((named) =>
-        fs.realPath(named).pipe(Effect.orElseSucceed(() => path.resolve(named))),
-      ),
-    ),
-    Effect.flatMap(Effect.transposeOption),
-  )
+  // Where home is, resolved once by the port that owns the rules for it. A home that is
+  // none means nothing is under a home.
+  const home = yield* Home
 
   // Whether a `.git` sits in `directory` or anywhere above it. The file system root is
   // its own parent, which ends the walk.

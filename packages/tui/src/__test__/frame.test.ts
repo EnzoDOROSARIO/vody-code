@@ -5,7 +5,7 @@ import { screen, unpainted } from '#__test__/testing.ts'
 import { send, start, transcriptRows, view } from '#frame.ts'
 import { transcribe, written } from '#transcript.ts'
 
-import { CommandRefused } from 'agent'
+import { CommandRefused, SkillNotFound } from 'agent'
 
 import type { Breakdown, Impasse, ToolResult } from 'agent'
 import type { Chord, Notch, Screen, ScreenEvent } from '#frame.ts'
@@ -88,9 +88,33 @@ it('a Plan write with no Steps says the Plan was cleared', () => {
   ).toEqual({ source: 'call', text: 'The Plan was cleared' })
 })
 
+// A Skill load is announced by the name it was asked for, and nothing else: the
+// instructions the load returns are for the model, not for the screen.
+it('a Skill load is announced by the Skill name', () => {
+  expect(
+    transcribe({ id: 'c', name: 'load_skill', params: { name: 'tdd' }, type: 'tool-call' }),
+  ).toEqual({ source: 'call', text: 'skill tdd' })
+})
+
 it('bash quotes its output back, exit status first, and the others stay quiet', () => {
   expect(transcribe(ranBash)).toEqual({ source: 'result', text: 'exit 0\nhi' })
   expect(transcribe(readFile)).toBeUndefined()
+})
+
+// A successful Skill load is quiet like any other non-bash result, however much of the
+// Skill it carried: the call's one line already said which Skill was picked up.
+it('a successful Skill load stays quiet', () => {
+  const loaded: ToolResult = Response.toolResultPart({
+    encodedResult: '<skill name="tdd" path="/skills/tdd">\nWrite the test first.\n</skill>',
+    id: 'call-9',
+    isFailure: false,
+    name: 'load_skill',
+    preliminary: false,
+    providerExecuted: false,
+    result: '<skill name="tdd" path="/skills/tdd">\nWrite the test first.\n</skill>',
+  })
+
+  expect(transcribe(loaded)).toBeUndefined()
 })
 
 // The quote is cut to the preview, keeping the front: output that ran long still shows
@@ -125,6 +149,29 @@ it('a tool that failed says which tool, and why', () => {
   expect(transcribe(refused)).toEqual({
     source: 'result',
     text: 'bash failed: rm -rf is not allowed here',
+  })
+})
+
+// A load that found no Skill is `load_skill`'s own failure, said like any other: the
+// line names the tool and carries the reason the Catalog gave, so the correction is on
+// the screen where the load was.
+it('a failed Skill load says which tool failed, and why', () => {
+  const missing: ToolResult = Response.toolResultPart({
+    encodedResult: {},
+    id: 'call-10',
+    isFailure: true,
+    name: 'load_skill',
+    preliminary: false,
+    providerExecuted: false,
+    result: new SkillNotFound({
+      name: 'missing',
+      reason: 'There is no Skill named "missing". The Catalog holds: tdd',
+    }),
+  })
+
+  expect(transcribe(missing)).toEqual({
+    source: 'result',
+    text: 'load_skill failed: There is no Skill named "missing". The Catalog holds: tdd',
   })
 })
 
